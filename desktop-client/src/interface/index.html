@@ -20,6 +20,18 @@
         <input type="text" id="licenseKey" placeholder="Enter your license key" spellcheck="false">
       </div>
       <div class="field-row">
+        <label for="inferenceMode">Inference Mode</label>
+        <select id="inferenceMode">
+          <option value="standard" selected>Cloud Standard (Instant Centralized Luxury)</option>
+          <option value="local">Local Core (Offline Infrastructure)</option>
+          <option value="byok">Cloud BYOK (Wholesale Key Control)</option>
+        </select>
+      </div>
+      <div class="field-row hidden" id="byokKeyRow">
+        <label for="byokKey">User OpenRouter Key</label>
+        <input type="password" id="byokKey" placeholder="sk-or-v1-..." spellcheck="false">
+      </div>
+      <div class="field-row">
         <label for="workflowType">Workflow Type</label>
         <select id="workflowType">
           <option value="data_extraction">Extract Data (JSON)</option>
@@ -52,6 +64,28 @@
         <input type="checkbox" id="integGithub" value="github">
         <span>Create GitHub Ticket</span>
       </label>
+    </section>
+
+    <section class="accounts-section">
+      <button id="accountsToggle" class="accounts-toggle">Connected Accounts Settings</button>
+      <div id="accountsPanel" class="accounts-panel hidden">
+        <span class="accounts-panel-label">Authenticate via Nango to enable live API actions</span>
+        <div class="account-row">
+          <span class="account-name">Slack</span>
+          <button class="auth-btn" data-provider="slack">Connect Slack Workspace</button>
+          <span id="statusSlack" class="auth-status">Not connected</span>
+        </div>
+        <div class="account-row">
+          <span class="account-name">Google Sheets</span>
+          <button class="auth-btn" data-provider="google-sheets">Connect Google Account</button>
+          <span id="statusSheets" class="auth-status">Not connected</span>
+        </div>
+        <div class="account-row">
+          <span class="account-name">GitHub</span>
+          <button class="auth-btn" data-provider="github">Connect GitHub Account</button>
+          <span id="statusGithub" class="auth-status">Not connected</span>
+        </div>
+      </div>
     </section>
 
     <section class="prompt-section">

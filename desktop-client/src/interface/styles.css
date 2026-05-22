@@ -122,6 +122,105 @@ body {
   color: #e1e4e8;
 }
 
+.accounts-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.accounts-toggle {
+  background: none;
+  border: 1px solid #30363d;
+  color: #8b949e;
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 6px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  text-align: left;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.accounts-toggle:hover {
+  color: #e1e4e8;
+  border-color: #484f58;
+}
+
+.accounts-toggle.active {
+  color: #1f6feb;
+  border-color: #1f6feb;
+}
+
+.accounts-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  background: #161b22;
+  border: 1px solid #30363d;
+  border-radius: 6px;
+}
+
+.accounts-panel.hidden {
+  display: none;
+}
+
+.hidden {
+  display: none;
+}
+
+.accounts-panel-label {
+  font-size: 11px;
+  color: #8b949e;
+}
+
+.account-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.account-name {
+  width: 110px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #e1e4e8;
+  flex-shrink: 0;
+}
+
+.auth-btn {
+  background: #21262d;
+  border: 1px solid #30363d;
+  color: #c9d1d9;
+  font-size: 12px;
+  padding: 5px 14px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.auth-btn:hover {
+  background: #30363d;
+  border-color: #484f58;
+}
+
+.auth-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.auth-status {
+  font-size: 11px;
+  color: #8b949e;
+  margin-left: auto;
+}
+
+.auth-status.connected {
+  color: #3fb950;
+}
+
 .prompt-section {
   display: flex;
   flex-direction: column;

@@ -8,33 +8,41 @@ if (supabaseUrl && supabaseKey) {
   supabase = createClient(supabaseUrl, supabaseKey);
 }
 
-async function validateSubscription(licenseKey) {
+async function validateSubscription(req, res, next) {
+  const { licenseKey } = req.body;
+
   if (!licenseKey || typeof licenseKey !== "string") {
-    return false;
+    return res.status(403).json({ ok: false, error: "Missing or invalid license key" });
   }
 
   if (!supabase) {
     console.warn("[VALIDATE] Supabase not configured — allowing request by default");
-    return true;
+    req.nangoConnectionId = null;
+    return next();
   }
 
   try {
     const { data, error } = await supabase
       .from("licenses")
-      .select("id")
+      .select("id, nango_connection_id")
       .eq("key", licenseKey)
       .eq("status", "active")
       .maybeSingle();
 
     if (error) {
       console.error("[VALIDATE] Supabase query error:", error.message);
-      return false;
+      return res.status(403).json({ ok: false, error: "License validation failed" });
     }
 
-    return data !== null;
+    if (!data) {
+      return res.status(403).json({ ok: false, error: "Invalid or inactive license key" });
+    }
+
+    req.nangoConnectionId = data.nango_connection_id || null;
+    next();
   } catch (err) {
     console.error("[VALIDATE] Unexpected error:", err.message);
-    return false;
+    return res.status(500).json({ ok: false, error: "Internal server error" });
   }
 }
 

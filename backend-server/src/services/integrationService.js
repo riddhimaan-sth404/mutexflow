@@ -1,90 +1,94 @@
-async function sendSlackNotification(data) {
-  const url = process.env.SLACK_WEBHOOK_URL;
-  if (!url) {
-    console.log("[INTEGRATION:SLACK] No SLACK_WEBHOOK_URL configured — skipping");
+const { Nango } = require("@nangohq/node");
+
+const nangoSecretKey = process.env.NANGO_SECRET_KEY;
+const nangoHost = process.env.NANGO_HOST;
+
+let nango = null;
+if (nangoSecretKey && nangoHost) {
+  nango = new Nango({ secretKey: nangoSecretKey, host: nangoHost });
+}
+
+async function sendSlackNotification(data, connectionId) {
+  if (!nango) {
+    console.log("[INTEGRATION:SLACK] Nango not configured — skipping");
     return;
   }
 
   try {
-    const payload = { text: `*Agent Result Received*\n\`\`\`${JSON.stringify(data, null, 2)}\`\`\`` };
-    const res = await fetch(url, {
+    const res = await nango.proxy({
+      connectionId,
+      providerConfigKey: "slack",
+      endpoint: "/chat.postMessage",
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
+      data: {
+        channel: "#general",
+        text: `*Agent Result Received*\n\`\`\`${JSON.stringify(data, null, 2)}\`\`\``,
+      },
     });
-    if (!res.ok) {
-      console.error(`[INTEGRATION:SLACK] Webhook returned ${res.status} ${res.statusText}`);
-      return;
-    }
-    console.log("[INTEGRATION:SLACK] Notification delivered successfully.");
+    console.log("[INTEGRATION:SLACK] Notification delivered:", res.status);
   } catch (err) {
-    console.error(`[INTEGRATION:SLACK] Request failed: ${err.message}`);
+    console.error(`[INTEGRATION:SLACK] Nango proxy failed: ${err.message}`);
   }
 }
 
-async function updateGoogleSheetRow(data) {
-  const url = process.env.SHEETS_WEBHOOK_URL;
-  if (!url) {
-    console.log("[INTEGRATION:GOOGLE_SHEETS] No SHEETS_WEBHOOK_URL configured — skipping");
+async function updateGoogleSheetRow(data, connectionId) {
+  if (!nango) {
+    console.log("[INTEGRATION:GOOGLE_SHEETS] Nango not configured — skipping");
     return;
   }
 
   try {
-    const payload = {
-      workflowType: data.workflowType || "N/A",
-      taskComplexity: data.taskComplexity || "N/A",
-      prompt: data.prompt || "N/A",
-      result: data.result || "N/A",
-      timestamp: new Date().toISOString(),
-    };
-    const res = await fetch(url, {
+    const res = await nango.proxy({
+      connectionId,
+      providerConfigKey: "google-sheets",
+      endpoint: "/v4/spreadsheets/Sheet1",
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
+      data: {
+        workflowType: data.workflowType || "N/A",
+        taskComplexity: data.taskComplexity || "N/A",
+        prompt: data.prompt || "N/A",
+        result: data.result || "N/A",
+        timestamp: new Date().toISOString(),
+      },
     });
-    if (!res.ok) {
-      console.error(`[INTEGRATION:GOOGLE_SHEETS] Webhook returned ${res.status} ${res.statusText}`);
-      return;
-    }
-    console.log("[INTEGRATION:GOOGLE_SHEETS] Row appended successfully.");
+    console.log("[INTEGRATION:GOOGLE_SHEETS] Row appended:", res.status);
   } catch (err) {
-    console.error(`[INTEGRATION:GOOGLE_SHEETS] Request failed: ${err.message}`);
+    console.error(`[INTEGRATION:GOOGLE_SHEETS] Nango proxy failed: ${err.message}`);
   }
 }
 
-async function createGithubIssue(data) {
-  const url = process.env.GITHUB_WEBHOOK_URL;
-  if (!url) {
-    console.log("[INTEGRATION:GITHUB] No GITHUB_WEBHOOK_URL configured — skipping");
+async function createGithubIssue(data, connectionId) {
+  if (!nango) {
+    console.log("[INTEGRATION:GITHUB] Nango not configured — skipping");
     return;
   }
 
   try {
-    const payload = {
-      workflowType: data.workflowType || "N/A",
-      taskComplexity: data.taskComplexity || "N/A",
-      prompt: data.prompt || "N/A",
-      result: data.result || "N/A",
-      timestamp: new Date().toISOString(),
-    };
-    const res = await fetch(url, {
+    const res = await nango.proxy({
+      connectionId,
+      providerConfigKey: "github",
+      endpoint: "/repos/mutexflow/agent-results/issues",
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
+      data: {
+        title: `Agent Result - ${data.workflowType || "general"} - ${new Date().toISOString().split("T")[0]}`,
+        body: `## Agent Output\n\n**Workflow:** ${data.workflowType || "N/A"}\n**Complexity:** ${data.taskComplexity || "N/A"}\n**Prompt:** ${data.prompt || "N/A"}\n\n### Result\n\`\`\`\n${data.result || "No result"}\n\`\`\``,
+        labels: ["ai-agent", "automated"],
+      },
     });
-    if (!res.ok) {
-      console.error(`[INTEGRATION:GITHUB] Webhook returned ${res.status} ${res.statusText}`);
-      return;
-    }
-    console.log("[INTEGRATION:GITHUB] Issue created successfully.");
+    console.log("[INTEGRATION:GITHUB] Issue created:", res.status);
   } catch (err) {
-    console.error(`[INTEGRATION:GITHUB] Request failed: ${err.message}`);
+    console.error(`[INTEGRATION:GITHUB] Nango proxy failed: ${err.message}`);
   }
 }
 
-async function processIntegrations(resultData, targetIntegrations) {
+async function processIntegrations(resultData, targetIntegrations, nangoConnectionId) {
   if (!targetIntegrations || targetIntegrations.length === 0) {
     console.log("[INTEGRATIONS] No target integrations configured.");
+    return;
+  }
+
+  if (!nangoConnectionId) {
+    console.log("[INTEGRATIONS] No Nango connection ID available — skipping integrations");
     return;
   }
 
@@ -94,19 +98,19 @@ async function processIntegrations(resultData, targetIntegrations) {
     try {
       switch (integration) {
         case "slack":
-          sendSlackNotification(resultData);
+          await sendSlackNotification(resultData, nangoConnectionId);
           break;
         case "google_sheets":
-          updateGoogleSheetRow(resultData);
+          await updateGoogleSheetRow(resultData, nangoConnectionId);
           break;
         case "github":
-          createGithubIssue(resultData);
+          await createGithubIssue(resultData, nangoConnectionId);
           break;
         default:
           console.log(`[INTEGRATIONS] Unknown integration target: ${integration}`);
       }
     } catch (err) {
-      console.error(`[INTEGRATIONS] Error processing ${integration}:`, err.message);
+      console.error(`[INTEGRATIONS] Error processing ${integration}: ${err.message}`);
     }
   }
 

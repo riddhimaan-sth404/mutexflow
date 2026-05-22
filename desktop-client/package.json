@@ -30,5 +30,8 @@
     "linux": {
       "target": "AppImage"
     }
+  },
+  "dependencies": {
+    "@nangohq/frontend": "^0.70.4"
   }
 }
