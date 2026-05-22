@@ -1,34 +1,85 @@
-function sendSlackNotification(data) {
-  console.log("[INTEGRATION:SLACK] Sending notification to Slack webhook...");
-  console.log("[INTEGRATION:SLACK] Payload:", JSON.stringify({
-    channel: "#ai-agent-results",
-    username: "MutexFlow Agent",
-    text: `*Agent Result Received*\n\`\`\`${JSON.stringify(data, null, 2)}\`\`\``,
-    icon_emoji: ":robot_face:"
-  }, null, 2));
-  console.log("[INTEGRATION:SLACK] Notification delivered successfully.");
+async function sendSlackNotification(data) {
+  const url = process.env.SLACK_WEBHOOK_URL;
+  if (!url) {
+    console.log("[INTEGRATION:SLACK] No SLACK_WEBHOOK_URL configured — skipping");
+    return;
+  }
+
+  try {
+    const payload = { text: `*Agent Result Received*\n\`\`\`${JSON.stringify(data, null, 2)}\`\`\`` };
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      console.error(`[INTEGRATION:SLACK] Webhook returned ${res.status} ${res.statusText}`);
+      return;
+    }
+    console.log("[INTEGRATION:SLACK] Notification delivered successfully.");
+  } catch (err) {
+    console.error(`[INTEGRATION:SLACK] Request failed: ${err.message}`);
+  }
 }
 
-function updateGoogleSheetRow(data) {
-  console.log("[INTEGRATION:GOOGLE_SHEETS] Appending row to Google Sheet...");
-  console.log("[INTEGRATION:GOOGLE_SHEETS] Row data:", JSON.stringify({
-    spreadsheetId: "mock_spreadsheet_id",
-    range: "Sheet1!A:E",
-    values: [[new Date().toISOString(), data.workflowType || "N/A", data.taskComplexity || "N/A", data.prompt || "N/A", data.result?.substring(0, 200) || "N/A"]]
-  }, null, 2));
-  console.log("[INTEGRATION:GOOGLE_SHEETS] Row appended successfully.");
+async function updateGoogleSheetRow(data) {
+  const url = process.env.SHEETS_WEBHOOK_URL;
+  if (!url) {
+    console.log("[INTEGRATION:GOOGLE_SHEETS] No SHEETS_WEBHOOK_URL configured — skipping");
+    return;
+  }
+
+  try {
+    const payload = {
+      workflowType: data.workflowType || "N/A",
+      taskComplexity: data.taskComplexity || "N/A",
+      prompt: data.prompt || "N/A",
+      result: data.result || "N/A",
+      timestamp: new Date().toISOString(),
+    };
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      console.error(`[INTEGRATION:GOOGLE_SHEETS] Webhook returned ${res.status} ${res.statusText}`);
+      return;
+    }
+    console.log("[INTEGRATION:GOOGLE_SHEETS] Row appended successfully.");
+  } catch (err) {
+    console.error(`[INTEGRATION:GOOGLE_SHEETS] Request failed: ${err.message}`);
+  }
 }
 
-function createGithubIssue(data) {
-  console.log("[INTEGRATION:GITHUB] Creating GitHub issue...");
-  console.log("[INTEGRATION:GITHUB] Issue payload:", JSON.stringify({
-    owner: "mutexflow",
-    repo: "agent-results",
-    title: `Agent Result - ${data.workflowType || "general"} - ${new Date().toISOString().split("T")[0]}`,
-    body: `## Agent Output\n\n**Workflow:** ${data.workflowType || "N/A"}\n**Complexity:** ${data.taskComplexity || "N/A"}\n**Prompt:** ${data.prompt || "N/A"}\n\n### Result\n\`\`\`\n${data.result || "No result"}\n\`\`\``,
-    labels: ["ai-agent", "automated"]
-  }, null, 2));
-  console.log("[INTEGRATION:GITHUB] Issue created successfully.");
+async function createGithubIssue(data) {
+  const url = process.env.GITHUB_WEBHOOK_URL;
+  if (!url) {
+    console.log("[INTEGRATION:GITHUB] No GITHUB_WEBHOOK_URL configured — skipping");
+    return;
+  }
+
+  try {
+    const payload = {
+      workflowType: data.workflowType || "N/A",
+      taskComplexity: data.taskComplexity || "N/A",
+      prompt: data.prompt || "N/A",
+      result: data.result || "N/A",
+      timestamp: new Date().toISOString(),
+    };
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      console.error(`[INTEGRATION:GITHUB] Webhook returned ${res.status} ${res.statusText}`);
+      return;
+    }
+    console.log("[INTEGRATION:GITHUB] Issue created successfully.");
+  } catch (err) {
+    console.error(`[INTEGRATION:GITHUB] Request failed: ${err.message}`);
+  }
 }
 
 async function processIntegrations(resultData, targetIntegrations) {

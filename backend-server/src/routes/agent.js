@@ -13,7 +13,7 @@ router.post("/agent/run", async (req, res) => {
       return res.status(400).json({ ok: false, error: "Missing or invalid 'prompt'" });
     }
 
-    if (!validateSubscription(licenseKey)) {
+    if (!(await validateSubscription(licenseKey))) {
       return res.status(403).json({ ok: false, error: "Invalid or missing license key" });
     }
 
