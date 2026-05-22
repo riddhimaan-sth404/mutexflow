@@ -11,6 +11,15 @@ contextBridge.exposeInMainWorld("api", {
     ipcRenderer.invoke("agent:run-standard", params),
   dispatchIntegrations: (params) =>
     ipcRenderer.invoke("integrations:dispatch", params),
+  downloadGgufModel: (params) =>
+    ipcRenderer.invoke("download-gguf-model", params),
+  spawnLlamaCpp: (params) =>
+    ipcRenderer.invoke("spawn-llama-cpp", params),
+  onDownloadProgress: (callback) => {
+    const handler = (_event, data) => callback(data);
+    ipcRenderer.on("download-progress", handler);
+    return () => ipcRenderer.removeListener("download-progress", handler);
+  },
   nangoAuth: (provider, connectionId) =>
     ipcRenderer.invoke("nango:auth", { provider, connectionId }),
 });

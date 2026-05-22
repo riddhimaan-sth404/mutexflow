@@ -15,9 +15,16 @@ const integGithub = document.getElementById("integGithub");
 const accountsToggle = document.getElementById("accountsToggle");
 const accountsPanel = document.getElementById("accountsPanel");
 const authBtns = document.querySelectorAll(".auth-btn");
+const localAiToggle = document.getElementById("localAiToggle");
+const localAiPanel = document.getElementById("localAiPanel");
+const localModelSelect = document.getElementById("localModelSelect");
+const downloadModelBtn = document.getElementById("downloadModelBtn");
+const downloadProgressBar = document.getElementById("downloadProgressBar");
+const downloadStatusText = document.getElementById("downloadStatusText");
 
 const MODE_STORAGE_KEY = "mutexflow_inference_mode";
 const BYOK_KEY_STORAGE_KEY = "mutexflow_byok_key";
+const LOCAL_MODEL_STORAGE_KEY = "mutexflow_local_model";
 
 const COOLDOWN_MAP = {
   low: 1,
@@ -27,6 +34,8 @@ const COOLDOWN_MAP = {
 };
 
 const DEFAULT_BTN_TEXT = "Run Agent";
+
+let removeProgressListener = null;
 
 const connectedAccounts = {};
 
@@ -44,6 +53,16 @@ if (savedMode) {
 const savedByokKey = localStorage.getItem(BYOK_KEY_STORAGE_KEY);
 if (savedByokKey) {
   byokKeyInput.value = savedByokKey;
+}
+
+const savedLocalModel = localStorage.getItem(LOCAL_MODEL_STORAGE_KEY);
+if (savedLocalModel) {
+  for (const opt of localModelSelect.options) {
+    if (opt.value === savedLocalModel) {
+      opt.selected = true;
+      break;
+    }
+  }
 }
 
 function updateModeVisibility() {
@@ -64,6 +83,63 @@ inferenceMode.addEventListener("change", updateModeVisibility);
 byokKeyInput.addEventListener("input", () => {
   if (inferenceMode.value === "byok") {
     localStorage.setItem(BYOK_KEY_STORAGE_KEY, byokKeyInput.value);
+  }
+});
+
+localAiToggle.addEventListener("click", () => {
+  localAiPanel.classList.toggle("hidden");
+  localAiToggle.classList.toggle("active");
+});
+
+localModelSelect.addEventListener("change", () => {
+  if (localModelSelect.value) {
+    localStorage.setItem(LOCAL_MODEL_STORAGE_KEY, localModelSelect.value);
+  }
+});
+
+downloadModelBtn.addEventListener("click", async () => {
+  const selected = localModelSelect.options[localModelSelect.selectedIndex];
+  if (!selected || !selected.value) {
+    appendLog("[SYSTEM] Select a GGUF model from the list first.", "system");
+    return;
+  }
+
+  const repo = selected.dataset.repo;
+  const file = selected.dataset.file;
+
+  downloadModelBtn.disabled = true;
+  downloadModelBtn.textContent = "Downloading...";
+  downloadProgressBar.style.width = "0%";
+  downloadStatusText.textContent = "Starting download...";
+
+  if (removeProgressListener) {
+    removeProgressListener();
+  }
+
+  removeProgressListener = window.api.onDownloadProgress((data) => {
+    const pct = data.total > 0 ? ((data.bytes / data.total) * 100).toFixed(1) : 0;
+    downloadProgressBar.style.width = Math.min(pct, 100) + "%";
+    const mb = (data.bytes / 1024 / 1024).toFixed(1);
+    const totalMb = (data.total / 1024 / 1024).toFixed(1);
+    downloadStatusText.textContent = mb + " MB / " + totalMb + " MB (" + pct + "%)";
+  });
+
+  try {
+    const result = await window.api.downloadGgufModel({ repo, file });
+    if (result.ok) {
+      downloadProgressBar.style.width = "100%";
+      downloadStatusText.textContent = "Download complete: " + file;
+      appendLog("[SYSTEM] Model downloaded: " + file, "system");
+    } else {
+      downloadStatusText.textContent = "Download failed: " + (result.error || "Unknown error");
+      appendLog("[ERROR] Model download failed: " + (result.error || "Unknown error"), "error");
+    }
+  } catch (err) {
+    downloadStatusText.textContent = "Download error: " + err.message;
+    appendLog("[ERROR] Model download error: " + err.message, "error");
+  } finally {
+    downloadModelBtn.disabled = false;
+    downloadModelBtn.textContent = "Download and Setup";
   }
 });
 
@@ -200,8 +276,26 @@ async function runAgent() {
       appendLog("[SYSTEM] Routing to Local Core (llama.cpp)...", "system");
       result = await window.api.runAgentLocal({ prompt, taskComplexity, workflowType });
 
+      if (!result.ok && result.error && result.error.toLowerCase().includes("connection refused")) {
+        appendLog("[SYSTEM] Local llama.cpp service is offline. Booting the binary engine automatically...", "system");
+        const selected = localModelSelect.options[localModelSelect.selectedIndex];
+        const modelFile = selected && selected.value ? selected.dataset.file : null;
+        const bootResult = await window.api.spawnLlamaCpp({ modelFile });
+
+        if (bootResult.ok) {
+          appendLog("[SYSTEM] llama.cpp engine started. Retrying inference...", "system");
+          await new Promise(r => setTimeout(r, 2000));
+          result = await window.api.runAgentLocal({ prompt, taskComplexity, workflowType });
+        } else {
+          appendLog("[ERROR] Failed to boot llama.cpp: " + (bootResult.error || "Unknown error"), "error");
+          setLoading(false);
+          startCooldown(COOLDOWN_MAP[taskComplexity] || 3);
+          return;
+        }
+      }
+
       if (!result.ok) {
-        appendLog("[SYSTEM] Local Core unavailable. Start llama.cpp with a GGUF model on port 8080, or switch to Cloud mode.", "system");
+        appendLog("[SYSTEM] Local Core unavailable. Download a GGUF model and ensure llama.cpp can start on port 8080, or switch to Cloud mode.", "system");
         setLoading(false);
         startCooldown(COOLDOWN_MAP[taskComplexity] || 3);
         return;

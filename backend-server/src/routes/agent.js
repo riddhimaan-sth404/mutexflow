@@ -1,38 +1,10 @@
 const { Router } = require("express");
 const { validateSubscription } = require("../middleware/validateSubscription");
-const { runAi } = require("../services/puterAi");
 const { processIntegrations } = require("../services/integrationService");
 const { AGENT_PROMPTS } = require("../services/agentPrompts");
 const { CLOUD_CASCADES } = require("../config/aiProviders");
 
 const router = Router();
-
-router.post("/agent/run", validateSubscription, async (req, res) => {
-  try {
-    const { prompt, taskComplexity, workflowType, targetIntegrations } = req.body;
-
-    if (!prompt || typeof prompt !== "string") {
-      return res.status(400).json({ ok: false, error: "Missing or invalid 'prompt'" });
-    }
-
-    const result = await runAi(prompt, taskComplexity, workflowType);
-
-    if (!result.success) {
-      return res.status(502).json({ ok: false, error: result.error });
-    }
-
-    processIntegrations(
-      { result: result.data, workflowType, taskComplexity, prompt },
-      targetIntegrations,
-      req.nangoConnectionId
-    );
-
-    return res.json({ ok: true, result: result.data });
-  } catch (err) {
-    console.error("[UNHANDLED]", err);
-    return res.status(500).json({ ok: false, error: "Internal server error" });
-  }
-});
 
 router.post("/agent/process-standard", validateSubscription, async (req, res) => {
   try {

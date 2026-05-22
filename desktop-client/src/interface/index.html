@@ -88,6 +88,49 @@
       </div>
     </section>
 
+    <section class="local-ai-section">
+      <button id="localAiToggle" class="local-ai-toggle">Local AI Hub</button>
+      <div id="localAiPanel" class="local-ai-panel hidden">
+        <div class="model-select-row">
+          <select id="localModelSelect">
+            <option value="" disabled selected>Select a GGUF model to download...</option>
+            <option value="lmstudio-community/Meta-Llama-3.1-8B-Instruct-GGUF/Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf"
+              data-repo="lmstudio-community/Meta-Llama-3.1-8B-Instruct-GGUF"
+              data-file="Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf">
+              Llama 3.1 8B Instruct (Q4_K_M) - Balanced &amp; Highly Capable
+            </option>
+            <option value="unsloth/DeepSeek-R1-Distill-Llama-8B-GGUF/DeepSeek-R1-Distill-Llama-8B-Q4_K_M.gguf"
+              data-repo="unsloth/DeepSeek-R1-Distill-Llama-8B-GGUF"
+              data-file="DeepSeek-R1-Distill-Llama-8B-Q4_K_M.gguf">
+              DeepSeek R1 Distill Llama 8B (Q4_K_M) - Advanced Reasoning
+            </option>
+            <option value="Qwen/Qwen2.5-Coder-7B-Instruct-GGUF/qwen2.5-coder-7b-instruct-q4_k_m.gguf"
+              data-repo="Qwen/Qwen2.5-Coder-7B-Instruct-GGUF"
+              data-file="qwen2.5-coder-7b-instruct-q4_k_m.gguf">
+              Qwen 2.5 Coder 7B Instruct (Q4_K_M) - Elite Programming Engine
+            </option>
+            <option value="lmstudio-community/Phi-3.5-mini-instruct-GGUF/Phi-3.5-mini-instruct-Q4_K_M.gguf"
+              data-repo="lmstudio-community/Phi-3.5-mini-instruct-GGUF"
+              data-file="Phi-3.5-mini-instruct-Q4_K_M.gguf">
+              Phi-3.5 Mini Instruct (Q4_K_M) - Ultra-Fast &amp; Lightweight
+            </option>
+            <option value="maziyarpanahi/Mistral-7B-Instruct-v0.3-GGUF/Mistral-7B-Instruct-v0.3-Q4_K_M.gguf"
+              data-repo="maziyarpanahi/Mistral-7B-Instruct-v0.3-GGUF"
+              data-file="Mistral-7B-Instruct-v0.3-Q4_K_M.gguf">
+              Mistral 7B Instruct v0.3 (Q4_K_M) - Diverse General Productivity
+            </option>
+          </select>
+          <button id="downloadModelBtn">Download and Setup</button>
+        </div>
+        <div class="download-progress-container">
+          <div class="download-progress-track">
+            <div id="downloadProgressBar" class="download-progress-bar"></div>
+          </div>
+          <span id="downloadStatusText"></span>
+        </div>
+      </div>
+    </section>
+
     <section class="prompt-section">
       <label for="promptInput">Command / Prompt</label>
       <textarea id="promptInput" placeholder="Enter automation command or data..."></textarea>

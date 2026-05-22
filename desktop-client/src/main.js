@@ -5,6 +5,8 @@ const {
   safeStorage,
 } = require("electron");
 const path = require("path");
+const fs = require("fs");
+const { spawn } = require("child_process");
 const { BACKEND_URL } = require("./config");
 
 const NANGO_HOST = process.env.NANGO_HOST || "http://localhost:3003";
@@ -17,6 +19,14 @@ if (isEncryptionAvailable) {
   backendUrl = safeStorage.decryptString(encrypted);
 }
 
+const modelsDir = path.join(app.getPath("userData"), "models");
+const llamaCppPath = path.join(__dirname, "..", "resources", "bin", "llama-server.exe");
+
+if (!fs.existsSync(modelsDir)) {
+  fs.mkdirSync(modelsDir, { recursive: true });
+}
+
+let llamaProcess = null;
 let mainWindow;
 
 function createWindow() {
@@ -32,6 +42,32 @@ function createWindow() {
   });
 
   mainWindow.loadFile(path.join(__dirname, "interface", "index.html"));
+}
+
+function killLlamaProcess() {
+  if (llamaProcess) {
+    try {
+      llamaProcess.kill("SIGTERM");
+      console.log("[llama.cpp] Process terminated.");
+    } catch (err) {
+      console.error("[llama.cpp] Kill error:", err.message);
+    }
+    llamaProcess = null;
+  }
+}
+
+async function waitForLlamaReady(timeoutMs) {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    try {
+      const resp = await fetch("http://localhost:8080/v1/models", {
+        signal: AbortSignal.timeout(2000),
+      });
+      if (resp.ok) return true;
+    } catch {}
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+  return false;
 }
 
 ipcMain.handle("auth:verify-license", async (_event, { licenseKey }) => {
@@ -165,6 +201,115 @@ ipcMain.handle("agent:run-standard", async (_event, { prompt, licenseKey, taskCo
   }
 });
 
+ipcMain.handle("download-gguf-model", async (_event, { repo, file }) => {
+  const url = `https://huggingface.co/${repo}/resolve/main/${file}`;
+  const destPath = path.join(modelsDir, file);
+
+  try {
+    if (fs.existsSync(destPath)) {
+      return { ok: true, message: "Model already downloaded" };
+    }
+
+    const response = await fetch(url);
+    if (!response.ok) {
+      return { ok: false, error: `Hugging Face returned HTTP ${response.status}` };
+    }
+
+    const total = parseInt(response.headers.get("content-length") || "0", 10);
+    const reader = response.body.getReader();
+    const writeStream = fs.createWriteStream(destPath);
+    let downloaded = 0;
+
+    async function pump() {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        downloaded += value.length;
+        writeStream.write(Buffer.from(value));
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send("download-progress", {
+            bytes: downloaded,
+            total,
+            filename: file,
+          });
+        }
+      }
+    }
+
+    await pump();
+    await new Promise((resolve) => writeStream.end(resolve));
+
+    return { ok: true };
+  } catch (err) {
+    if (fs.existsSync(destPath)) {
+      fs.unlinkSync(destPath);
+    }
+    return { ok: false, error: `Download failed: ${err.message}` };
+  }
+});
+
+ipcMain.handle("spawn-llama-cpp", async (_event, { modelFile }) => {
+  if (llamaProcess) {
+    return { ok: true };
+  }
+
+  const alreadyRunning = await waitForLlamaReady(3000);
+  if (alreadyRunning) {
+    return { ok: true };
+  }
+
+  if (!fs.existsSync(llamaCppPath)) {
+    return { ok: false, error: `llama-server.exe not found at ${llamaCppPath}. Place the binary in resources/bin/` };
+  }
+
+  const modelPath = modelFile ? path.join(modelsDir, modelFile) : null;
+  if (modelFile && !fs.existsSync(modelPath)) {
+    return { ok: false, error: `Model file not found at ${modelPath}. Download it first via Local AI Hub.` };
+  }
+
+  const args = [
+    "--model", modelPath,
+    "--port", "8080",
+    "--ctx-size", "4096",
+    "--threads", "4",
+  ];
+
+  try {
+    llamaProcess = spawn(llamaCppPath, args, {
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+
+    llamaProcess.stdout.on("data", (data) => {
+      console.log(`[llama.cpp:stdout] ${data.toString().trim()}`);
+    });
+
+    llamaProcess.stderr.on("data", (data) => {
+      console.log(`[llama.cpp:stderr] ${data.toString().trim()}`);
+    });
+
+    llamaProcess.on("error", (err) => {
+      console.error("[llama.cpp] Spawn error:", err.message);
+      llamaProcess = null;
+    });
+
+    llamaProcess.on("exit", (code) => {
+      console.log(`[llama.cpp] Process exited with code ${code}`);
+      llamaProcess = null;
+    });
+
+    const ready = await waitForLlamaReady(30000);
+    if (!ready) {
+      killLlamaProcess();
+      return { ok: false, error: "llama.cpp failed to start within 30s. Check the model path and logs." };
+    }
+
+    return { ok: true };
+  } catch (err) {
+    killLlamaProcess();
+    return { ok: false, error: `Failed to spawn llama.cpp: ${err.message}` };
+  }
+});
+
 ipcMain.handle("integrations:dispatch", async (_event, { result, workflowType, taskComplexity, prompt, licenseKey, targetIntegrations }) => {
   try {
     const response = await fetch(`${backendUrl}/api/v1/integrations/dispatch`, {
@@ -197,7 +342,6 @@ ipcMain.handle("nango:auth", async (_event, { provider, connectionId }) => {
 
     authWindow.loadURL(authUrl);
 
-    const filter = { urls: [`${NANGO_HOST}/oauth/callback*`] };
     authWindow.webContents.on("will-redirect", (_event, url) => {
       if (url.startsWith(`${NANGO_HOST}/oauth/callback`)) {
         authWindow.close();
@@ -214,7 +358,12 @@ ipcMain.handle("nango:auth", async (_event, { provider, connectionId }) => {
 app.whenReady().then(createWindow);
 
 app.on("window-all-closed", () => {
+  killLlamaProcess();
   if (process.platform !== "darwin") app.quit();
+});
+
+app.on("before-quit", () => {
+  killLlamaProcess();
 });
 
 app.on("activate", () => {
