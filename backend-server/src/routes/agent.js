@@ -6,7 +6,7 @@ const router = Router();
 
 router.post("/agent/run", async (req, res) => {
   try {
-    const { prompt, licenseKey, taskComplexity } = req.body;
+    const { prompt, licenseKey, taskComplexity, workflowType } = req.body;
 
     if (!prompt || typeof prompt !== "string") {
       return res.status(400).json({ ok: false, error: "Missing or invalid 'prompt'" });
@@ -16,7 +16,7 @@ router.post("/agent/run", async (req, res) => {
       return res.status(403).json({ ok: false, error: "Invalid or missing license key" });
     }
 
-    const result = await runAi(prompt, taskComplexity);
+    const result = await runAi(prompt, taskComplexity, workflowType);
 
     if (!result.success) {
       return res.status(502).json({ ok: false, error: result.error });

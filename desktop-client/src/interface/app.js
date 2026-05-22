@@ -1,4 +1,5 @@
 const licenseKeyInput = document.getElementById("licenseKey");
+const workflowTypeSelect = document.getElementById("workflowType");
 const complexitySelect = document.getElementById("taskComplexity");
 const promptInput = document.getElementById("promptInput");
 const executeBtn = document.getElementById("executeBtn");
@@ -36,6 +37,7 @@ async function runAgent() {
   const prompt = promptInput.value.trim();
   const licenseKey = licenseKeyInput.value.trim();
   const taskComplexity = complexitySelect.value;
+  const workflowType = workflowTypeSelect.value;
 
   if (!prompt) {
     appendLog("[SYSTEM] Please enter a prompt or command.", "system");
@@ -51,7 +53,8 @@ async function runAgent() {
   setLoading(true);
 
   try {
-    const result = await window.api.runAgent(prompt, licenseKey, taskComplexity);
+    appendLog("[SYSTEM] Workflow: " + workflowTypeSelect.options[workflowTypeSelect.selectedIndex].text, "system");
+    const result = await window.api.runAgent(prompt, licenseKey, taskComplexity, workflowType);
 
     if (result.ok) {
       appendLog("[OK]", "ok");

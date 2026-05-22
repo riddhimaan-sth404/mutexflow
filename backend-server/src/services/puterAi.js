@@ -1,3 +1,5 @@
+const { AGENT_PROMPTS } = require("./agentPrompts");
+
 const MODEL_MAP = {
   low: ["gpt-5.4-nano", "gemini-2.5-flash-lite"],
   medium: ["google/gemini-1.5-flash"],
@@ -9,7 +11,16 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function runAi(prompt, complexity = "medium") {
+function buildMessages(prompt, workflowType) {
+  const entry = AGENT_PROMPTS[workflowType] || AGENT_PROMPTS.general_reasoning;
+  return [
+    { role: "system", content: entry.system },
+    { role: "user", content: prompt },
+  ];
+}
+
+async function runAi(prompt, complexity = "medium", workflowType = "general_reasoning") {
+  const messages = buildMessages(prompt, workflowType);
   const models = MODEL_MAP[complexity] || MODEL_MAP.medium;
   const maxRetries = 3;
   const baseDelay = 1000;
@@ -17,12 +28,12 @@ async function runAi(prompt, complexity = "medium") {
   for (const model of models) {
     for (let attempt = 0; attempt < maxRetries; attempt++) {
       try {
-        const response = await puter.ai.chat(prompt, { model });
+        const response = await puter.ai.chat(messages, { model });
 
         console.log(
           "[DEBUG]",
           JSON.stringify({
-            prompt,
+            workflowType,
             complexity,
             model,
             response,

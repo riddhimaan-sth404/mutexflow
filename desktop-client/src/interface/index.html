@@ -20,6 +20,14 @@
         <input type="text" id="licenseKey" placeholder="Enter your license key" spellcheck="false">
       </div>
       <div class="field-row">
+        <label for="workflowType">Workflow Type</label>
+        <select id="workflowType">
+          <option value="data_extraction">Extract Data (JSON)</option>
+          <option value="professional_drafting">Draft Communication</option>
+          <option value="general_reasoning" selected>General Analysis</option>
+        </select>
+      </div>
+      <div class="field-row">
         <label for="taskComplexity">Complexity</label>
         <select id="taskComplexity">
           <option value="low">Low — Quick lookups</option>
