@@ -1,0 +1,103 @@
+MUTEXFLOW B2B COMMERCIAL END USER LICENSE AGREEMENT
+
+IMPORTANT — READ CAREFULLY: This End User License Agreement ("Agreement") is a
+legally binding contract between the entity or individual acquiring the license
+("Licensee") and MutexFlow Inc. ("Licensor"). By installing, copying, or
+otherwise using the Software, Licensee agrees to be bound by all terms herein.
+
+1. GRANT OF LICENSE
+   Licensor grants Licensee a non-exclusive, non-transferable, non-sublicensable
+   right to install and use the Software on a single machine per paid seat
+   ("Node-Locked License"). Any use across multiple machines, virtual machines,
+   or containers requires separate seat licenses. Redistribution, sublicensing,
+   hosting as a service for third parties, or making the Software available on
+   any network for use by more than one licensee simultaneously is strictly
+   prohibited.
+
+2. HARDWARE FINGERPRINTING & TELEMETRY CONSENT
+   Licensee explicitly consents to the Software collecting, hashing, and
+   transmitting unique hardware identifiers (including but not limited to MAC
+   addresses, CPU serials, and motherboard UUIDs) to Licensor's servers. This
+   data is used strictly to enforce node-locking (1 License = 1 Machine). Any
+   attempt to spoof, block, alter, or bypass this hardware telemetry constitutes
+   an immediate material breach of this Agreement and renders the license void
+   ab initio.
+
+3. ABSOLUTE PROHIBITION ON REVERSE ENGINEERING
+   Licensee shall not, directly or through any third party, decompile, decrypt,
+   disassemble, or otherwise reverse engineer the Software. Licensee shall not
+   inspect, intercept, or analyze network traffic for the purpose of
+   discovering, replicating, or documenting Licensor's proprietary multi-
+   provider AI cascading architecture, provider routing logic, or any other
+   trade secret embodied in the Software. Any violation of this clause subjects
+   Licensee to immediate termination of this Agreement and legal action for
+   trade secret misappropriation.
+
+4. RIGHT TO AUDIT
+   Licensor reserves the right, upon seven (7) days written notice, to audit
+   Licensee's IT systems, software deployment logs, and network records to
+   verify compliance with the seat counts, usage restrictions, and other terms
+   of this Agreement. Licensee shall fully cooperate and provide reasonable
+   access during normal business hours. If an audit reveals under-licensed use,
+   Licensee shall immediately pay the applicable license fees plus a penalty of
+   150% of the underpaid amount.
+
+5. INJUNCTIVE RELIEF & DAMAGES
+   Licensee acknowledges that any breach of this Agreement, particularly of
+   Sections 2, 3, or 7, causes irreparable harm to Licensor for which monetary
+   damages are inadequate. Licensor is entitled to seek immediate ex parte
+   injunctive relief to halt Licensee's operations, alongside pursuing maximum
+   liquidated damages (equal to the greater of USD $50,000 or three times the
+   total fees paid by Licensee) and any other statutory or compensatory damages
+   available under applicable law.
+
+6. DATA COLLECTION & PRIVACY
+   Beyond hardware identifiers under Section 2, the Software may collect and
+   transmit usage analytics, error logs, and performance metrics to Licensor.
+   Licensee has no expectation of privacy in any data processed through or by
+   the Software. Licensee represents that it has obtained all necessary
+   consents from its personnel and end users for such data collection.
+
+7. NO TRANSFER OR RESALE
+   Licensee may not rent, lease, lend, sell, assign, or otherwise transfer any
+   rights in the Software. Any attempt to do so is void and constitutes an
+   immediate material breach.
+
+8. WARRANTY DISCLAIMER
+   THE SOFTWARE IS PROVIDED "AS IS" AND "AS AVAILABLE" WITHOUT WARRANTY OF ANY
+   KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE IMPLIED WARRANTIES
+   OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND NON-INFRINGEMENT.
+   LICENSOR DOES NOT WARRANT THAT THE SOFTWARE WILL BE UNINTERRUPTED, ERROR-
+   FREE, OR FREE FROM VULNERABILITIES.
+
+9. LIMITATION OF LIABILITY
+   TO THE MAXIMUM EXTENT PERMITTED BY LAW, LICENSOR'S TOTAL LIABILITY FOR ALL
+   CLAIMS ARISING FROM OR RELATING TO THIS AGREEMENT OR THE SOFTWARE SHALL NOT
+   EXCEED THE TOTAL FEES PAID BY LICENSEE IN THE SIX (6) MONTHS PRECEDING THE
+   EVENT GIVING RISE TO THE CLAIM. IN NO EVENT SHALL LICENSOR BE LIABLE FOR ANY
+   LOST PROFITS, LOST DATA, OR SPECIAL, INCIDENTAL, CONSEQUENTIAL, OR PUNITIVE
+   DAMAGES.
+
+10. TERMINATION
+    This Agreement is effective until terminated. Licensor may terminate this
+    Agreement immediately upon any breach by Licensee. Upon termination, Licensee
+    must immediately cease all use of the Software, destroy all copies, and
+    certify such destruction in writing. Sections 2 through 10 survive
+    termination.
+
+11. GOVERNING LAW & VENUE
+    This Agreement shall be governed by and construed in accordance with the
+    laws of the State of Delaware, United States of America, without regard to
+    its conflict-of-law principles. The exclusive venue for any dispute arising
+    from this Agreement shall be the state and federal courts located in
+    Wilmington, Delaware. Licensee consents to the personal jurisdiction of
+    such courts and waives any objection based on improper venue or forum non
+    conveniens.
+
+12. ENTIRE AGREEMENT
+    This Agreement constitutes the entire agreement between the parties
+    concerning the Software and supersedes any prior or contemporaneous
+    communications, representations, or agreements, whether oral or written.
+
+MutexFlow Inc.
+Wilmington, Delaware, USA

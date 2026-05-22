@@ -70,7 +70,7 @@ async function waitForLlamaReady(timeoutMs) {
   return false;
 }
 
-ipcMain.handle("auth:verify-license", async (_event, { licenseKey }) => {
+ipcMain.handle("auth:verify-license", async (_event, { licenseKey, machineId }) => {
   if (!licenseKey) {
     return { ok: false, error: "License key is required" };
   }
@@ -79,7 +79,7 @@ ipcMain.handle("auth:verify-license", async (_event, { licenseKey }) => {
     const response = await fetch(`${backendUrl}/api/v1/auth/verify-license`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ licenseKey }),
+      body: JSON.stringify({ licenseKey, machineId: machineId || "PENDING_FINGERPRINT_IMPLEMENTATION" }),
     });
 
     const data = await response.json();

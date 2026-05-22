@@ -12,7 +12,9 @@ app.use(express.json({ limit: "1mb" }));
 app.use("/api/v1", agentRouter);
 
 app.post("/api/v1/auth/verify-license", async (req, res) => {
-  const { licenseKey } = req.body;
+  const { licenseKey, machineId } = req.body;
+
+  console.log(`[AUTH] Verifying License: ${licenseKey} for Machine: ${machineId || "PENDING_FINGERPRINT_IMPLEMENTATION"}`);
 
   if (!licenseKey || typeof licenseKey !== "string") {
     return res.status(403).json({ ok: false, error: "Missing or invalid license key" });

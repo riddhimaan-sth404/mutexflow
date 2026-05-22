@@ -255,7 +255,8 @@ async function runAgent() {
   setLoading(true);
 
   try {
-    const licenseResult = await window.api.verifyLicense(licenseKey);
+    const machineId = "PENDING_FINGERPRINT_IMPLEMENTATION";
+    const licenseResult = await window.api.verifyLicense(licenseKey, machineId);
     if (!licenseResult.ok) {
       appendLog("[ERROR] " + (licenseResult.error || "License verification failed"), "error");
       setLoading(false);

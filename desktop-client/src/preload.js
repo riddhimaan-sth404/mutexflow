@@ -1,8 +1,8 @@
 const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("api", {
-  verifyLicense: (licenseKey) =>
-    ipcRenderer.invoke("auth:verify-license", { licenseKey }),
+  verifyLicense: (licenseKey, machineId) =>
+    ipcRenderer.invoke("auth:verify-license", { licenseKey, machineId }),
   runAgentLocal: (params) =>
     ipcRenderer.invoke("agent:run-local", params),
   runAgentByok: (params) =>
