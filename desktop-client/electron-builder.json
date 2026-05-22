@@ -1,0 +1,14 @@
+{
+  "appId": "com.b2b.ai-agent",
+  "productName": "B2B AI Agent",
+  "files": ["src/**/*"],
+  "win": {
+    "target": "portable"
+  },
+  "mac": {
+    "target": "dir"
+  },
+  "linux": {
+    "target": "AppImage"
+  }
+}

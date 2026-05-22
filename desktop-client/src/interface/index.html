@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>B2B AI Agent</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app">
+    <header class="header">
+      <h1>B2B AI Agent</h1>
+      <span class="badge">Enterprise</span>
+    </header>
+
+    <section class="controls">
+      <div class="field-row">
+        <label for="licenseKey">License Key</label>
+        <input type="text" id="licenseKey" placeholder="Enter your license key" spellcheck="false">
+      </div>
+      <div class="field-row">
+        <label for="taskComplexity">Complexity</label>
+        <select id="taskComplexity">
+          <option value="low">Low — Quick lookups</option>
+          <option value="medium" selected>Medium — Standard agent</option>
+          <option value="high">High — Deep analysis</option>
+          <option value="reasoning">Reasoning — Complex logic</option>
+        </select>
+      </div>
+    </section>
+
+    <section class="prompt-section">
+      <label for="promptInput">Command / Prompt</label>
+      <textarea id="promptInput" placeholder="Enter automation command or data..."></textarea>
+    </section>
+
+    <section class="actions">
+      <button id="executeBtn">Run Agent</button>
+      <div id="spinner" class="spinner hidden"></div>
+    </section>
+
+    <section class="output-section">
+      <div class="output-header">
+        <span>Output / Log</span>
+        <button id="clearBtn">Clear</button>
+      </div>
+      <pre id="logOutput"></pre>
+    </section>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
