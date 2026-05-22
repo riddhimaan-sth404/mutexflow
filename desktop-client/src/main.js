@@ -8,6 +8,7 @@ const path = require("path");
 const fs = require("fs");
 const { spawn } = require("child_process");
 const { BACKEND_URL } = require("./config");
+const { machineIdSync } = require("node-machine-id");
 
 const NANGO_HOST = process.env.NANGO_HOST || "http://localhost:3003";
 
@@ -24,6 +25,13 @@ const llamaCppPath = path.join(__dirname, "..", "resources", "bin", "llama-serve
 
 if (!fs.existsSync(modelsDir)) {
   fs.mkdirSync(modelsDir, { recursive: true });
+}
+
+let hardwareFingerprint = "UNKNOWN_HWID";
+try {
+  hardwareFingerprint = machineIdSync({ original: true });
+} catch (err) {
+  console.error("[SYSTEM] Failed to read HWID:", err.message);
 }
 
 let llamaProcess = null;
@@ -70,7 +78,7 @@ async function waitForLlamaReady(timeoutMs) {
   return false;
 }
 
-ipcMain.handle("auth:verify-license", async (_event, { licenseKey, machineId }) => {
+ipcMain.handle("auth:verify-license", async (_event, { licenseKey }) => {
   if (!licenseKey) {
     return { ok: false, error: "License key is required" };
   }
@@ -79,7 +87,7 @@ ipcMain.handle("auth:verify-license", async (_event, { licenseKey, machineId }) 
     const response = await fetch(`${backendUrl}/api/v1/auth/verify-license`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ licenseKey, machineId: machineId || "PENDING_FINGERPRINT_IMPLEMENTATION" }),
+      body: JSON.stringify({ licenseKey, machineId: hardwareFingerprint }),
     });
 
     const data = await response.json();
