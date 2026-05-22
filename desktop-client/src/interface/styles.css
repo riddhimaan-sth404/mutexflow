@@ -85,6 +85,43 @@ body {
   border-color: #1f6feb;
 }
 
+.integrations {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 8px 0;
+}
+
+.integrations-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: #8b949e;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: #c9d1d9;
+  cursor: pointer;
+  user-select: none;
+}
+
+.checkbox-row input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: #1f6feb;
+  cursor: pointer;
+}
+
+.checkbox-row:hover {
+  color: #e1e4e8;
+}
+
 .prompt-section {
   display: flex;
   flex-direction: column;
@@ -143,6 +180,12 @@ body {
 
 #executeBtn:active {
   background: #1f6feb;
+}
+
+#executeBtn.btn-cooldown {
+  background: #484f58;
+  opacity: 0.7;
+  cursor: not-allowed;
 }
 
 .spinner {

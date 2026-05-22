@@ -31,7 +31,7 @@ function createWindow() {
   mainWindow.loadFile(path.join(__dirname, "interface", "index.html"));
 }
 
-ipcMain.handle("agent:run", async (_event, { prompt, licenseKey, taskComplexity, workflowType }) => {
+ipcMain.handle("agent:run", async (_event, { prompt, licenseKey, taskComplexity, workflowType, targetIntegrations }) => {
   if (!prompt || !licenseKey) {
     return { ok: false, error: "Prompt and license key are required" };
   }
@@ -43,7 +43,7 @@ ipcMain.handle("agent:run", async (_event, { prompt, licenseKey, taskComplexity,
     const response = await fetch(`${backendUrl}/api/v1/agent/run`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ prompt, licenseKey, taskComplexity, workflowType }),
+      body: JSON.stringify({ prompt, licenseKey, taskComplexity, workflowType, targetIntegrations }),
       signal: controller.signal,
     });
 

@@ -6,6 +6,18 @@ const executeBtn = document.getElementById("executeBtn");
 const logOutput = document.getElementById("logOutput");
 const clearBtn = document.getElementById("clearBtn");
 const spinner = document.getElementById("spinner");
+const integSlack = document.getElementById("integSlack");
+const integSheets = document.getElementById("integSheets");
+const integGithub = document.getElementById("integGithub");
+
+const COOLDOWN_MAP = {
+  low: 1,
+  medium: 3,
+  high: 8,
+  reasoning: 8
+};
+
+const DEFAULT_BTN_TEXT = "Run Agent";
 
 clearBtn.addEventListener("click", () => {
   logOutput.textContent = "";
@@ -33,7 +45,29 @@ function setLoading(loading) {
   spinner.classList.toggle("hidden", !loading);
 }
 
+function startCooldown(seconds) {
+  executeBtn.disabled = true;
+  executeBtn.classList.add("btn-cooldown");
+  let remaining = seconds;
+
+  function tick() {
+    if (remaining <= 0) {
+      executeBtn.textContent = DEFAULT_BTN_TEXT;
+      executeBtn.disabled = false;
+      executeBtn.classList.remove("btn-cooldown");
+      return;
+    }
+    executeBtn.textContent = "Cooling down (" + remaining + "s)...";
+    remaining--;
+    setTimeout(tick, 1000);
+  }
+
+  tick();
+}
+
 async function runAgent() {
+  if (executeBtn.disabled) return;
+
   const prompt = promptInput.value.trim();
   const licenseKey = licenseKeyInput.value.trim();
   const taskComplexity = complexitySelect.value;
@@ -49,12 +83,20 @@ async function runAgent() {
     return;
   }
 
+  const targetIntegrations = [];
+  if (integSlack.checked) targetIntegrations.push(integSlack.value);
+  if (integSheets.checked) targetIntegrations.push(integSheets.value);
+  if (integGithub.checked) targetIntegrations.push(integGithub.value);
+
   appendLog("[SYSTEM] Sending request to agent...", "system");
   setLoading(true);
 
   try {
     appendLog("[SYSTEM] Workflow: " + workflowTypeSelect.options[workflowTypeSelect.selectedIndex].text, "system");
-    const result = await window.api.runAgent(prompt, licenseKey, taskComplexity, workflowType);
+    if (targetIntegrations.length > 0) {
+      appendLog("[SYSTEM] Integrations: " + targetIntegrations.join(", "), "system");
+    }
+    const result = await window.api.runAgent(prompt, licenseKey, taskComplexity, workflowType, targetIntegrations);
 
     if (result.ok) {
       appendLog("[OK]", "ok");
@@ -66,5 +108,6 @@ async function runAgent() {
     appendLog("[FATAL] " + err.message, "error");
   } finally {
     setLoading(false);
+    startCooldown(COOLDOWN_MAP[taskComplexity] || 3);
   }
 }
