@@ -3,26 +3,29 @@ const {
   BrowserWindow,
   ipcMain,
   safeStorage,
+  shell,
 } = require("electron");
+const os = require("os");
 const path = require("path");
 const fs = require("fs");
 const { spawn } = require("child_process");
+const { machineIdSync } = require("node-machine-id");
 const { BACKEND_URL } = require("./config");
 
 const isEncryptionAvailable = safeStorage.isEncryptionAvailable();
-let backendUrl = BACKEND_URL;
-
-if (isEncryptionAvailable) {
-  const encrypted = safeStorage.encryptString(BACKEND_URL);
-  backendUrl = safeStorage.decryptString(encrypted);
-}
+const backendUrl = BACKEND_URL;
 
 const modelsDir = path.join(app.getPath("userData"), "models");
-const llamaCppPath = path.join(__dirname, "..", "resources", "bin", "llama-server.exe");
+const oauthSignalDir = path.join(os.tmpdir(), "mutexflow-oauth");
 
 if (!fs.existsSync(modelsDir)) {
   fs.mkdirSync(modelsDir, { recursive: true });
 }
+if (!fs.existsSync(oauthSignalDir)) {
+  fs.mkdirSync(oauthSignalDir, { recursive: true });
+}
+
+const llamaCppPath = path.join(__dirname, "..", "resources", "bin", "llama-server.exe");
 
 let hardwareFingerprint = "UNKNOWN_HWID";
 try {
@@ -320,7 +323,7 @@ ipcMain.handle("integrations:dispatch", async (_event, { result, workflowType, t
     const response = await fetch(`${backendUrl}/api/v1/integrations/dispatch`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ result, workflowType, taskComplexity, prompt, licenseKey, targetIntegrations }),
+      body: JSON.stringify({ result, workflowType, taskComplexity, prompt, licenseKey, targetIntegrations, machineId: hardwareFingerprint }),
     });
 
     const data = await response.json();
@@ -331,33 +334,20 @@ ipcMain.handle("integrations:dispatch", async (_event, { result, workflowType, t
 });
 
 ipcMain.handle("oauth:connect", async (_event, { provider }) => {
-  return new Promise((resolve) => {
-    const authUrl = `http://localhost:3001/api/v1/auth/${provider}/connect?machineId=${encodeURIComponent(hardwareFingerprint)}`;
+  const authUrl = `${backendUrl}/api/v1/auth/${provider}/connect?machineId=${encodeURIComponent(hardwareFingerprint)}`;
+  const signalFile = path.join(oauthSignalDir, `${hardwareFingerprint}_${provider}`);
 
-    const authWindow = new BrowserWindow({
-      width: 800,
-      height: 700,
-      parent: mainWindow,
-      modal: true,
-      webPreferences: {
-        nodeIntegration: false,
-        contextIsolation: true,
-      },
-    });
+  shell.openExternal(authUrl);
 
-    authWindow.loadURL(authUrl);
+  for (let i = 0; i < 120; i++) {
+    await new Promise(r => setTimeout(r, 1000));
+    if (fs.existsSync(signalFile)) {
+      try { fs.unlinkSync(signalFile); } catch {}
+      return { ok: true, provider };
+    }
+  }
 
-    authWindow.webContents.on("will-redirect", (_event, url) => {
-      if (url.includes(`/api/v1/auth/${provider}/callback`)) {
-        authWindow.close();
-        resolve({ ok: true, provider });
-      }
-    });
-
-    authWindow.on("closed", () => {
-      resolve({ ok: false, error: "Auth window closed by user" });
-    });
-  });
+  return { ok: false, error: "OAuth timed out after 120s" };
 });
 
 app.whenReady().then(createWindow);

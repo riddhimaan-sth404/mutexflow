@@ -9,8 +9,6 @@ const executeBtn = document.getElementById("executeBtn");
 const logOutput = document.getElementById("logOutput");
 const clearBtn = document.getElementById("clearBtn");
 const spinner = document.getElementById("spinner");
-const localAiToggle = document.getElementById("localAiToggle");
-const localAiPanel = document.getElementById("localAiPanel");
 const localModelSelect = document.getElementById("localModelSelect");
 const downloadModelBtn = document.getElementById("downloadModelBtn");
 const downloadProgressBar = document.getElementById("downloadProgressBar");
@@ -74,11 +72,6 @@ byokKeyInput.addEventListener("input", () => {
   if (inferenceMode.value === "byok") {
     localStorage.setItem(BYOK_KEY_STORAGE_KEY, byokKeyInput.value);
   }
-});
-
-localAiToggle.addEventListener("click", () => {
-  localAiPanel.classList.toggle("hidden");
-  localAiToggle.classList.toggle("active");
 });
 
 localModelSelect.addEventListener("change", () => {
@@ -169,7 +162,7 @@ integrationsHub.addEventListener("click", async (e) => {
     const result = await window.api.openOAuthPopup(provider);
     if (result.ok) {
       connectedAccounts[provider] = provider;
-      const statusEl = document.getElementById("status-" + provider);
+      const statusEl = btn.closest(".integ-card").querySelector(".auth-status");
       if (statusEl) {
         statusEl.textContent = "Connected";
         statusEl.className = "auth-status connected";
@@ -331,3 +324,19 @@ async function runAgent() {
     startCooldown(COOLDOWN_MAP[taskComplexity] || 3);
   }
 }
+
+/* ── Sidebar Navigation ── */
+
+document.querySelectorAll(".sidebar-item").forEach(item => {
+  item.addEventListener("click", () => {
+    document.querySelectorAll(".sidebar-item").forEach(el => el.classList.remove("active"));
+    item.classList.add("active");
+
+    document.querySelectorAll(".panel").forEach(el => el.classList.remove("active"));
+    const section = item.dataset.section;
+    const panel = document.getElementById("panel-" + section);
+    if (panel) {
+      panel.classList.add("active");
+    }
+  });
+});

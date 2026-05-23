@@ -1,10 +1,17 @@
 require("dotenv").config();
 
+const querystring = require("querystring");
+const fs = require("fs");
+const path = require("path");
+const os = require("os");
 const express = require("express");
 const cors = require("cors");
 const axios = require("axios");
 const { createClient } = require("@supabase/supabase-js");
 const agentRouter = require("./routes/agent");
+
+const PORT = process.env.PORT || 3001;
+const redirectPort = PORT;
 
 const app = express();
 
@@ -16,6 +23,11 @@ const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_SERVICE_KEY;
 
 const supabase = supabaseUrl && supabaseKey ? createClient(supabaseUrl, supabaseKey) : null;
+
+const oauthSignalDir = path.join(os.tmpdir(), "mutexflow-oauth");
+if (!fs.existsSync(oauthSignalDir)) {
+  fs.mkdirSync(oauthSignalDir, { recursive: true });
+}
 
 const OAUTH_CONFIG = {
   slack: {
@@ -108,10 +120,14 @@ app.get("/api/v1/auth/:provider/connect", (req, res) => {
     return res.status(400).send("Missing machineId query parameter");
   }
 
-  const redirectUri = `http://localhost:3001/api/v1/auth/${provider}/callback`;
+  if (!config.clientId) {
+    return res.status(501).send(`OAuth not configured for ${provider}: missing client_id. Set ${provider.toUpperCase()}_CLIENT_ID in .env`);
+  }
+
+  const redirectUri = `http://localhost:${redirectPort}/api/v1/auth/${provider}/callback`;
   const url =
     `${config.authorizeUrl}?` +
-    `client_id=${config.clientId}&` +
+    `client_id=${encodeURIComponent(config.clientId)}&` +
     `scope=${encodeURIComponent(config.scope)}&` +
     `redirect_uri=${encodeURIComponent(redirectUri)}&` +
     `state=${encodeURIComponent(machineId)}` +
@@ -138,20 +154,24 @@ app.get("/api/v1/auth/:provider/callback", async (req, res) => {
   }
 
   try {
-    const tokenResponse = await axios.post(
-      config.tokenUrl,
-      {
-        client_id: config.clientId,
-        client_secret: config.clientSecret,
-        code,
-        redirect_uri: `http://localhost:3001/api/v1/auth/${provider}/callback`,
-      },
-      {
-        headers: provider === "github"
-          ? { Accept: "application/json" }
-          : { "Content-Type": "application/json" },
-      }
-    );
+    const tokenParams = {
+      client_id: config.clientId,
+      client_secret: config.clientSecret,
+      code,
+      grant_type: "authorization_code",
+      redirect_uri: `http://localhost:${redirectPort}/api/v1/auth/${provider}/callback`,
+    };
+
+    let tokenResponse;
+    if (provider === "github") {
+      tokenResponse = await axios.post(config.tokenUrl, tokenParams, {
+        headers: { Accept: "application/json", "Content-Type": "application/json" },
+      });
+    } else {
+      tokenResponse = await axios.post(config.tokenUrl, querystring.stringify(tokenParams), {
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      });
+    }
 
     const tokenData = tokenResponse.data;
     const accessToken = tokenData.access_token;
@@ -178,15 +198,27 @@ app.get("/api/v1/auth/:provider/callback", async (req, res) => {
       }
     }
 
+    try {
+      const signalFile = path.join(oauthSignalDir, `${machineId}_${provider}`);
+      fs.writeFileSync(signalFile, Date.now().toString());
+    } catch (err) {
+      console.error(`[OAUTH:${provider}] Failed to write signal file:`, err.message);
+    }
+
     res.send(`
-      <script>
-        alert("${provider} successfully integrated with your MutexFlow Agent!");
-        window.close();
-      </script>
+      <!DOCTYPE html>
+      <html lang="en">
+      <head><meta charset="UTF-8"><title>MutexFlow - Connected</title></head>
+      <body style="font-family: system-ui; text-align: center; padding: 3rem;">
+        <h1>✅ ${provider} Connected</h1>
+        <p>You can close this tab and return to MutexFlow.</p>
+      </body>
+      </html>
     `);
   } catch (err) {
-    console.error(`[OAUTH:${provider}] Callback error:`, err.message);
-    res.status(500).send("OAuth callback failed");
+    const detail = err.response?.data ? JSON.stringify(err.response.data) : err.message;
+    console.error(`[OAUTH:${provider}] Callback error: ${detail}`);
+    res.status(500).send(`OAuth callback failed for provider: ${provider}`);
   }
 });
 
@@ -245,7 +277,6 @@ app.post("/api/v1/auth/verify-license", async (req, res) => {
   }
 });
 
-const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
   console.log(`[backend] B2B AI Proxy running on port ${PORT}`);
 });

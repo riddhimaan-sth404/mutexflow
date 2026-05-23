@@ -1,4 +1,5 @@
 const { createClient } = require("@supabase/supabase-js");
+const querystring = require("querystring");
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_SERVICE_KEY;
@@ -19,9 +20,75 @@ async function getTokens(machineId, provider) {
   return data || null;
 }
 
+const REFRESH_ENDPOINTS = {
+  google: "https://oauth2.googleapis.com/token",
+  microsoft: "https://login.microsoftonline.com/common/oauth2/v2.0/token",
+};
+
+async function refreshAccessToken(machineId, provider, currentRefreshToken) {
+  const tokenUrl = REFRESH_ENDPOINTS[provider];
+  if (!tokenUrl || !currentRefreshToken) return null;
+
+  const envPrefix = provider.toUpperCase();
+  const clientId = process.env[`${envPrefix}_CLIENT_ID`];
+  const clientSecret = process.env[`${envPrefix}_CLIENT_SECRET`];
+  if (!clientId || !clientSecret) return null;
+
+  try {
+    const res = await fetch(tokenUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: querystring.stringify({
+        client_id: clientId,
+        client_secret: clientSecret,
+        refresh_token: currentRefreshToken,
+        grant_type: "refresh_token",
+      }),
+    });
+
+    const data = await res.json();
+    if (!data.access_token) {
+      console.error(`[REFRESH:${provider}] Refresh failed:`, data);
+      return null;
+    }
+
+    if (supabase) {
+      await supabase
+        .from("user_integrations")
+        .update({
+          access_token: data.access_token,
+          refresh_token: data.refresh_token || currentRefreshToken,
+          updated_at: new Date(),
+        })
+        .eq("machine_id", machineId)
+        .eq("provider", provider);
+    }
+
+    console.log(`[REFRESH:${provider}] Token refreshed successfully`);
+    return data.access_token;
+  } catch (err) {
+    console.error(`[REFRESH:${provider}] Request failed: ${err.message}`);
+    return null;
+  }
+}
+
+async function getAccessToken(machineId, provider, allowRefresh = true) {
+  const tokens = await getTokens(machineId, provider);
+  if (!tokens) return null;
+
+  let token = tokens.access_token;
+
+  if (allowRefresh && REFRESH_ENDPOINTS[provider] && tokens.refresh_token) {
+    const refreshed = await refreshAccessToken(machineId, provider, tokens.refresh_token);
+    if (refreshed) token = refreshed;
+  }
+
+  return token;
+}
+
 async function sendSlackNotification(data, machineId) {
-  const tokens = await getTokens(machineId, "slack");
-  if (!tokens) {
+  const token = await getAccessToken(machineId, "slack", false);
+  if (!token) {
     console.log("[INTEGRATION:SLACK] No Slack tokens found for machine — skipping");
     return;
   }
@@ -31,7 +98,7 @@ async function sendSlackNotification(data, machineId) {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${tokens.access_token}`,
+        Authorization: `Bearer ${token}`,
       },
       body: JSON.stringify({
         channel: "#general",
@@ -50,8 +117,8 @@ async function sendSlackNotification(data, machineId) {
 }
 
 async function updateGoogleSheetRow(data, machineId) {
-  const tokens = await getTokens(machineId, "google");
-  if (!tokens) {
+  const token = await getAccessToken(machineId, "google");
+  if (!token) {
     console.log("[INTEGRATION:GOOGLE_SHEETS] No Google tokens found for machine — skipping");
     return;
   }
@@ -61,7 +128,7 @@ async function updateGoogleSheetRow(data, machineId) {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${tokens.access_token}`,
+        Authorization: `Bearer ${token}`,
       },
       body: JSON.stringify({
         values: [[
@@ -81,8 +148,8 @@ async function updateGoogleSheetRow(data, machineId) {
 }
 
 async function createGithubIssue(data, machineId) {
-  const tokens = await getTokens(machineId, "github");
-  if (!tokens) {
+  const token = await getAccessToken(machineId, "github", false);
+  if (!token) {
     console.log("[INTEGRATION:GITHUB] No GitHub tokens found for machine — skipping");
     return;
   }
@@ -92,7 +159,7 @@ async function createGithubIssue(data, machineId) {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${tokens.access_token}`,
+        Authorization: `Bearer ${token}`,
       },
       body: JSON.stringify({
         title: `Agent Result - ${data.workflowType || "general"} - ${new Date().toISOString().split("T")[0]}`,
@@ -112,6 +179,11 @@ const integrationHandlers = {
     await sendSlackNotification(data, machineId);
   },
   gmail: async (data, machineId) => {
+    const token = await getAccessToken(machineId, "google");
+    if (!token) {
+      console.log("[INTEGRATION:GMAIL] No Google tokens found for machine — skipping");
+      return;
+    }
     console.log("[INTEGRATION:GMAIL] Gmail dispatch not yet implemented");
   },
   google_sheets: async (data, machineId) => {
