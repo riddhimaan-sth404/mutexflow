@@ -1,12 +1,18 @@
 {
   "appId": "com.b2b.ai-agent",
-  "productName": "B2B AI Agent",
+  "productName": "MutexFlow Enterprise",
   "files": ["src/**/*"],
   "win": {
-    "target": "portable"
+    "target": "nsis"
+  },
+  "nsis": {
+    "oneClick": false,
+    "perMachine": true,
+    "allowToChangeInstallationDirectory": true,
+    "license": "LICENSE.txt"
   },
   "mac": {
-    "target": "dir"
+    "target": "dmg"
   },
   "linux": {
     "target": "AppImage"

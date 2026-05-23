@@ -15,22 +15,6 @@
     "electron": "^33.3.1",
     "electron-builder": "^25.1.8"
   },
-  "build": {
-    "appId": "com.b2b.ai-agent",
-    "productName": "B2B AI Agent",
-    "files": [
-      "src/**/*"
-    ],
-    "win": {
-      "target": "portable"
-    },
-    "mac": {
-      "target": "dir"
-    },
-    "linux": {
-      "target": "AppImage"
-    }
-  },
   "dependencies": {
     "@nangohq/frontend": "^0.70.4",
     "node-machine-id": "^1.1.7"
