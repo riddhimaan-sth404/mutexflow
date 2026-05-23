@@ -27,7 +27,7 @@ const COOLDOWN_MAP = {
   reasoning: 8
 };
 
-const DEFAULT_BTN_TEXT = "Run Agent";
+const DEFAULT_BTN_TEXT = "Let's go";
 
 let removeProgressListener = null;
 
@@ -83,7 +83,7 @@ localModelSelect.addEventListener("change", () => {
 downloadModelBtn.addEventListener("click", async () => {
   const selected = localModelSelect.options[localModelSelect.selectedIndex];
   if (!selected || !selected.value) {
-    appendLog("[SYSTEM] Select a GGUF model from the list first.", "system");
+    appendLog("Pick a model from the list first, friend.", "system");
     return;
   }
 
@@ -93,7 +93,7 @@ downloadModelBtn.addEventListener("click", async () => {
   downloadModelBtn.disabled = true;
   downloadModelBtn.textContent = "Downloading...";
   downloadProgressBar.style.width = "0%";
-  downloadStatusText.textContent = "Starting download...";
+  downloadStatusText.textContent = "Getting things ready...";
 
   if (removeProgressListener) {
     removeProgressListener();
@@ -112,17 +112,17 @@ downloadModelBtn.addEventListener("click", async () => {
     if (result.ok) {
       downloadProgressBar.style.width = "100%";
       downloadStatusText.textContent = "Download complete: " + file;
-      appendLog("[SYSTEM] Model downloaded: " + file, "system");
+      appendLog("Model downloaded: " + file, "system");
     } else {
-      downloadStatusText.textContent = "Download failed: " + (result.error || "Unknown error");
-      appendLog("[ERROR] Model download failed: " + (result.error || "Unknown error"), "error");
+      downloadStatusText.textContent = "Something went wrong: " + (result.error || "Unknown error");
+      appendLog("Model download failed: " + (result.error || "Unknown error"), "error");
     }
   } catch (err) {
-    downloadStatusText.textContent = "Download error: " + err.message;
-    appendLog("[ERROR] Model download error: " + err.message, "error");
+    downloadStatusText.textContent = "Oops: " + err.message;
+    appendLog("Model download error: " + err.message, "error");
   } finally {
     downloadModelBtn.disabled = false;
-    downloadModelBtn.textContent = "Download and Setup";
+    downloadModelBtn.textContent = "Download & setup";
   }
 });
 
@@ -164,12 +164,12 @@ integrationsHub.addEventListener("click", async (e) => {
       connectedAccounts[provider] = provider;
       const statusEl = btn.closest(".integ-card").querySelector(".auth-status");
       if (statusEl) {
-        statusEl.textContent = "Connected";
+        statusEl.textContent = "On";
         statusEl.className = "auth-status connected";
       }
-      appendLog("[SYSTEM] " + provider + " workspace connected.", "system");
+      appendLog("Connected to " + provider + "!", "system");
     } else {
-      appendLog("[SYSTEM] " + provider + " auth failed: " + (result.error || "cancelled"), "system");
+      appendLog("Couldn't connect " + provider + ": " + (result.error || "cancelled"), "system");
     }
   } catch (err) {
     appendLog("[SYSTEM] " + provider + " auth error: " + err.message, "system");
@@ -204,7 +204,7 @@ function startCooldown(seconds) {
       executeBtn.classList.remove("btn-cooldown");
       return;
     }
-    executeBtn.textContent = "Cooling down (" + remaining + "s)...";
+    executeBtn.textContent = "Wait " + remaining + "s...";
     remaining--;
     setTimeout(tick, 1000);
   }
@@ -231,54 +231,54 @@ async function runAgent() {
   const workflowType = workflowTypeSelect.value;
 
   if (!prompt) {
-    appendLog("[SYSTEM] Please enter a prompt or command.", "system");
+    appendLog("Hey — what should I work on?", "system");
     return;
   }
 
   if (!licenseKey) {
-    appendLog("[SYSTEM] Please enter your license key.", "system");
+    appendLog("I need your license key to get started.", "system");
     return;
   }
 
   const targetIntegrations = getTargetIntegrations();
 
-  appendLog("[SYSTEM] Verifying license...", "system");
+  appendLog("Checking your license...", "system");
   setLoading(true);
 
   try {
     const licenseResult = await window.api.verifyLicense(licenseKey);
     if (!licenseResult.ok) {
-      appendLog("[ERROR] " + (licenseResult.error || "License verification failed"), "error");
+      appendLog("License check failed: " + (licenseResult.error || "Hmm, something's off"), "error");
       setLoading(false);
       startCooldown(COOLDOWN_MAP[taskComplexity] || 3);
       return;
     }
-    appendLog("[SYSTEM] License verified.", "system");
+    appendLog("License looks good!", "system");
 
-    appendLog("[SYSTEM] Mode: " + inferenceMode.options[inferenceMode.selectedIndex].text, "system");
-    appendLog("[SYSTEM] Workflow: " + workflowTypeSelect.options[workflowTypeSelect.selectedIndex].text, "system");
+    appendLog("Engine: " + inferenceMode.options[inferenceMode.selectedIndex].text, "system");
+    appendLog("Task: " + workflowTypeSelect.options[workflowTypeSelect.selectedIndex].text, "system");
     if (targetIntegrations.length > 0) {
-      appendLog("[SYSTEM] Integrations: " + targetIntegrations.join(", "), "system");
+      appendLog("Sending results to: " + targetIntegrations.join(", "), "system");
     }
 
     let result;
 
     if (mode === "local") {
-      appendLog("[SYSTEM] Routing to Local Core (llama.cpp)...", "system");
+      appendLog("Running on your machine (local AI)...", "system");
       result = await window.api.runAgentLocal({ prompt, taskComplexity, workflowType });
 
       if (!result.ok && result.error && result.error.toLowerCase().includes("connection refused")) {
-        appendLog("[SYSTEM] Local llama.cpp service is offline. Booting the binary engine automatically...", "system");
+        appendLog("Local engine isn't running. Starting it up for you...", "system");
         const selected = localModelSelect.options[localModelSelect.selectedIndex];
         const modelFile = selected && selected.value ? selected.dataset.file : null;
         const bootResult = await window.api.spawnLlamaCpp({ modelFile });
 
         if (bootResult.ok) {
-          appendLog("[SYSTEM] llama.cpp engine started. Retrying inference...", "system");
+          appendLog("Engine's alive! Trying again...", "system");
           await new Promise(r => setTimeout(r, 2000));
           result = await window.api.runAgentLocal({ prompt, taskComplexity, workflowType });
         } else {
-          appendLog("[ERROR] Failed to boot llama.cpp: " + (bootResult.error || "Unknown error"), "error");
+          appendLog("Couldn't start the local engine: " + (bootResult.error || "Unknown error"), "error");
           setLoading(false);
           startCooldown(COOLDOWN_MAP[taskComplexity] || 3);
           return;
@@ -286,7 +286,7 @@ async function runAgent() {
       }
 
       if (!result.ok) {
-        appendLog("[SYSTEM] Local Core unavailable. Download a GGUF model and ensure llama.cpp can start on port 8080, or switch to Cloud mode.", "system");
+        appendLog("Can't reach the local AI. Try downloading a model or switching to Cloud mode.", "system");
         setLoading(false);
         startCooldown(COOLDOWN_MAP[taskComplexity] || 3);
         return;
@@ -294,31 +294,31 @@ async function runAgent() {
     } else if (mode === "byok") {
       const byokKey = localStorage.getItem(BYOK_KEY_STORAGE_KEY) || byokKeyInput.value.trim();
       if (!byokKey) {
-        appendLog("[ERROR] Enter your OpenRouter key in the User OpenRouter Key field.", "error");
+        appendLog("I need your OpenRouter key to use this mode.", "error");
         setLoading(false);
         startCooldown(COOLDOWN_MAP[taskComplexity] || 3);
         return;
       }
-      appendLog("[SYSTEM] Routing to Cloud BYOK (OpenRouter)...", "system");
+      appendLog("Using your own key via OpenRouter...", "system");
       result = await window.api.runAgentByok({ prompt, taskComplexity, workflowType, byokKey });
     } else {
-      appendLog("[SYSTEM] Routing to Cloud Standard cascade...", "system");
+      appendLog("Running in the cloud...", "system");
       result = await window.api.runAgentStandard({ prompt, licenseKey, taskComplexity, workflowType, targetIntegrations });
     }
 
     if (result.ok) {
-      appendLog("[OK]", "ok");
+      appendLog("Here you go:", "ok");
       appendLog(result.result, "ok");
 
       if (targetIntegrations.length > 0 && (mode === "local" || mode === "byok")) {
-        appendLog("[SYSTEM] Dispatching integrations...", "system");
+        appendLog("Sending to your connected apps...", "system");
         await window.api.dispatchIntegrations({ result: result.result, workflowType, taskComplexity, prompt, licenseKey, targetIntegrations });
       }
     } else {
-      appendLog("[ERROR] " + (result.error || "Unknown error"), "error");
+      appendLog("Something went wrong: " + (result.error || "Unknown error"), "error");
     }
   } catch (err) {
-    appendLog("[FATAL] " + err.message, "error");
+    appendLog("Uh oh — " + err.message, "error");
   } finally {
     setLoading(false);
     startCooldown(COOLDOWN_MAP[taskComplexity] || 3);

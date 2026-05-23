@@ -59,7 +59,7 @@ async function refreshAccessToken(machineId, provider, currentRefreshToken) {
     console.log(`[REFRESH:${provider}] Token refreshed successfully`);
     return data.access_token;
   } catch (err) {
-    console.error(`[REFRESH:${provider}] Request failed: ${err.message}`);
+    console.error(`[REFRESH:${provider}] Couldn't refresh token: ${err.message}`);
     return null;
   }
 }
@@ -81,7 +81,7 @@ async function getAccessToken(machineId, provider, allowRefresh = true) {
 async function sendSlackNotification(data, machineId) {
   const token = await getAccessToken(machineId, "slack", false);
   if (!token) {
-    console.log("[INTEGRATION:SLACK] No Slack tokens found for machine — skipping");
+    console.log("[INTEGRATION:SLACK] No Slack connection found — skipping");
     return;
   }
 
@@ -99,24 +99,28 @@ async function sendSlackNotification(data, machineId) {
     });
     const body = await res.json();
     if (body.ok) {
-      console.log("[INTEGRATION:SLACK] Notification delivered");
+      console.log("[INTEGRATION:SLACK] Posted to Slack!");
     } else {
-      console.error("[INTEGRATION:SLACK] API error:", body.error);
+      console.error("[INTEGRATION:SLACK] Slack said no:", body.error);
     }
   } catch (err) {
-    console.error(`[INTEGRATION:SLACK] Request failed: ${err.message}`);
+    console.error(`[INTEGRATION:SLACK] Couldn't reach Slack: ${err.message}`);
   }
 }
 
 async function updateGoogleSheetRow(data, machineId) {
   const token = await getAccessToken(machineId, "google");
   if (!token) {
-    console.log("[INTEGRATION:GOOGLE_SHEETS] No Google tokens found for machine — skipping");
+    console.log("[INTEGRATION:GOOGLE_SHEETS] No Google connection found — skipping");
     return;
   }
 
   try {
-    const spreadsheetId = process.env.GOOGLE_SHEET_ID || "Sheet1";
+    const spreadsheetId = process.env.GOOGLE_SHEET_ID;
+    if (!spreadsheetId) {
+      console.log("[INTEGRATION:GOOGLE_SHEETS] Missing GOOGLE_SHEET_ID environment variable — skipping");
+      return;
+    }
     const res = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(spreadsheetId)}/values/A1:append?valueInputOption=USER_ENTERED`, {
       method: "POST",
       headers: {
@@ -134,16 +138,16 @@ async function updateGoogleSheetRow(data, machineId) {
       }),
     });
     const body = await res.json();
-    console.log("[INTEGRATION:GOOGLE_SHEETS] Row appended:", body.spreadsheetId ? "OK" : "FAILED");
+    console.log("[INTEGRATION:GOOGLE_SHEETS] Row appended:", body.spreadsheetId ? "Nice, it worked!" : "Hmm, it didn't work");
   } catch (err) {
-    console.error(`[INTEGRATION:GOOGLE_SHEETS] Request failed: ${err.message}`);
+    console.error(`[INTEGRATION:GOOGLE_SHEETS] Couldn't write to sheet: ${err.message}`);
   }
 }
 
 async function createGithubIssue(data, machineId) {
   const token = await getAccessToken(machineId, "github", false);
   if (!token) {
-    console.log("[INTEGRATION:GITHUB] No GitHub tokens found for machine — skipping");
+    console.log("[INTEGRATION:GITHUB] No GitHub connection found — skipping");
     return;
   }
 
@@ -161,9 +165,9 @@ async function createGithubIssue(data, machineId) {
       }),
     });
     const body = await res.json();
-    console.log("[INTEGRATION:GITHUB] Issue created:", body.id ? "OK" : "FAILED");
+    console.log("[INTEGRATION:GITHUB] Issue created:", body.id ? "Done!" : "Didn't work");
   } catch (err) {
-    console.error(`[INTEGRATION:GITHUB] Request failed: ${err.message}`);
+    console.error(`[INTEGRATION:GITHUB] Couldn't create GitHub issue: ${err.message}`);
   }
 }
 
@@ -210,30 +214,30 @@ const integrationHandlers = {
 
 async function processIntegrations(resultData, targetIntegrations, machineId) {
   if (!targetIntegrations || targetIntegrations.length === 0) {
-    console.log("[INTEGRATIONS] No target integrations configured.");
+    console.log("[INTEGRATIONS] No apps selected — nothing to push to.");
     return;
   }
 
   if (!machineId) {
-    console.log("[INTEGRATIONS] No machine ID provided — skipping integrations");
+    console.log("[INTEGRATIONS] Can't find this machine — skipping integrations");
     return;
   }
 
-  console.log("[INTEGRATIONS] Processing integrations for:", targetIntegrations.join(", "));
+  console.log("[INTEGRATIONS] Pushing results to:", targetIntegrations.join(", "));
 
   for (const integration of targetIntegrations) {
     if (integrationHandlers[integration]) {
       try {
         await integrationHandlers[integration](resultData, machineId);
       } catch (err) {
-        console.error(`[INTEGRATIONS] Error processing ${integration}: ${err.message}`);
+        console.error(`[INTEGRATIONS] Something broke while talking to ${integration}: ${err.message}`);
       }
     } else {
-      console.log(`[INTEGRATIONS] Unknown integration target: ${integration}`);
+      console.log(`[INTEGRATIONS] Don't know how to push to: ${integration}`);
     }
   }
 
-  console.log("[INTEGRATIONS] All target integrations processed.");
+  console.log("[INTEGRATIONS] All done with integrations.");
 }
 
 module.exports = { processIntegrations };

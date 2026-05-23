@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>MutexFlow Enterprise</title>
+  <title>MutexFlow</title>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -28,7 +28,7 @@
               <path d="M5 8h6M8 5v6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
             </svg>
           </span>
-          <span class="sidebar-label">Agent Console</span>
+          <span class="sidebar-label">AI Assistant</span>
         </button>
         <button class="sidebar-item" data-section="integrations">
           <span class="sidebar-icon">
@@ -37,7 +37,7 @@
               <path d="M8 5V1M8 15v-4M5 8H1M15 8h-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
             </svg>
           </span>
-          <span class="sidebar-label">Integrations</span>
+          <span class="sidebar-label">Connected Apps</span>
         </button>
         <button class="sidebar-item" data-section="local-ai">
           <span class="sidebar-icon">
@@ -69,60 +69,59 @@
       <!-- Agent Console -->
       <div class="panel active" id="panel-agent">
         <div class="panel-header">
-          <h1 class="panel-title">Agent Console</h1>
-          <span class="panel-badge">Enterprise</span>
+          <h1 class="panel-title">AI Assistant</h1>
         </div>
 
         <section class="controls">
           <div class="field-row">
-            <label for="licenseKey">License Key</label>
-            <input type="text" id="licenseKey" placeholder="Enter your license key" spellcheck="false">
+            <label for="licenseKey">Your license key</label>
+            <input type="text" id="licenseKey" placeholder="e.g. ABCD-1234-..." spellcheck="false">
           </div>
           <div class="field-row">
-            <label for="inferenceMode">Inference Mode</label>
+            <label for="inferenceMode">AI engine</label>
             <select id="inferenceMode">
-              <option value="standard" selected>Cloud Standard</option>
-              <option value="local">Local Core</option>
-              <option value="byok">Cloud BYOK</option>
+              <option value="standard" selected>Cloud (fast &amp; smart)</option>
+              <option value="local">Local (runs offline)</option>
+              <option value="byok">Bring your own key</option>
             </select>
           </div>
           <div class="field-row hidden" id="byokKeyRow">
-            <label for="byokKey">User OpenRouter Key</label>
+            <label for="byokKey">Your OpenRouter API key</label>
             <input type="password" id="byokKey" placeholder="sk-or-v1-..." spellcheck="false">
           </div>
           <div class="field-row">
-            <label for="workflowType">Workflow Type</label>
+            <label for="workflowType">What are you doing?</label>
             <select id="workflowType">
-              <option value="data_extraction">Extract Data (JSON)</option>
-              <option value="professional_drafting">Draft Communication</option>
-              <option value="general_reasoning" selected>General Analysis</option>
+              <option value="data_extraction">Pulling data out of something</option>
+              <option value="professional_drafting">Writing a message</option>
+              <option value="general_reasoning" selected>Just thinking something through</option>
             </select>
           </div>
           <div class="field-row">
-            <label for="taskComplexity">Complexity</label>
+            <label for="taskComplexity">How much effort?</label>
             <select id="taskComplexity">
-              <option value="low">Low</option>
-              <option value="medium" selected>Medium</option>
-              <option value="high">High</option>
-              <option value="reasoning">Reasoning</option>
+              <option value="low">Quick &amp; easy</option>
+              <option value="medium" selected>Moderate</option>
+              <option value="high">Deep work</option>
+              <option value="reasoning">Think it through</option>
             </select>
           </div>
         </section>
 
         <section class="prompt-section">
-          <label for="promptInput">Command / Prompt</label>
-          <textarea id="promptInput" placeholder="Enter automation command or data..." spellcheck="false"></textarea>
+          <label for="promptInput">What do you need?</label>
+          <textarea id="promptInput" placeholder="Tell me what you need help with..." spellcheck="false"></textarea>
         </section>
 
         <section class="actions">
-          <button id="executeBtn">Run Agent</button>
+          <button id="executeBtn">Let's go</button>
           <div id="spinner" class="spinner hidden"></div>
         </section>
 
         <section class="output-section">
           <div class="output-header">
-            <span>Output / Log</span>
-            <button id="clearBtn">Clear</button>
+            <span>What happened</span>
+            <button id="clearBtn">Clear log</button>
           </div>
           <pre id="logOutput"></pre>
         </section>
@@ -131,8 +130,8 @@
       <!-- Integrations Panel -->
       <div class="panel" id="panel-integrations">
         <div class="panel-header">
-          <h1 class="panel-title">Enterprise Integration Hub</h1>
-          <input type="text" id="hubSearch" class="hub-search" placeholder="Filter integrations..." spellcheck="false">
+          <h1 class="panel-title">Connected Apps</h1>
+          <input type="text" id="hubSearch" class="hub-search" placeholder="Search apps..." spellcheck="false">
         </div>
 
         <div class="hub-grid" id="integrationsHub">
@@ -146,7 +145,7 @@
                   <span class="integ-card-name">Slack</span>
                 </label>
                 <button class="auth-btn" data-provider="slack">Connect</button>
-                <span id="status-slack" class="auth-status">Not connected</span>
+                <span id="status-slack" class="auth-status">Off</span>
               </div>
               <div class="integ-card">
                 <label class="integ-card-checkbox-label">
@@ -154,7 +153,7 @@
                   <span class="integ-card-name">Gmail</span>
                 </label>
                 <button class="auth-btn" data-provider="google">Connect</button>
-                <span id="status-gmail" class="auth-status">Not connected</span>
+                <span id="status-gmail" class="auth-status">Off</span>
               </div>
             </div>
           </div>
@@ -168,7 +167,7 @@
                   <span class="integ-card-name">Google Sheets</span>
                 </label>
                 <button class="auth-btn" data-provider="google">Connect</button>
-                <span id="status-google_sheets" class="auth-status">Not connected</span>
+                <span id="status-google_sheets" class="auth-status">Off</span>
               </div>
               <div class="integ-card">
                 <label class="integ-card-checkbox-label">
@@ -176,7 +175,7 @@
                   <span class="integ-card-name">Notion</span>
                 </label>
                 <button class="auth-btn" data-provider="notion">Connect</button>
-                <span id="status-notion" class="auth-status">Not connected</span>
+                <span id="status-notion" class="auth-status">Off</span>
               </div>
               <div class="integ-card">
                 <label class="integ-card-checkbox-label">
@@ -184,7 +183,7 @@
                   <span class="integ-card-name">Confluence</span>
                 </label>
                 <button class="auth-btn" data-provider="confluence">Connect</button>
-                <span id="status-confluence" class="auth-status">Not connected</span>
+                <span id="status-confluence" class="auth-status">Off</span>
               </div>
             </div>
           </div>
@@ -198,7 +197,7 @@
                   <span class="integ-card-name">GitHub</span>
                 </label>
                 <button class="auth-btn" data-provider="github">Connect</button>
-                <span id="status-github" class="auth-status">Not connected</span>
+                <span id="status-github" class="auth-status">Off</span>
               </div>
               <div class="integ-card">
                 <label class="integ-card-checkbox-label">
@@ -206,7 +205,7 @@
                   <span class="integ-card-name">Jira</span>
                 </label>
                 <button class="auth-btn" data-provider="jira">Connect</button>
-                <span id="status-jira" class="auth-status">Not connected</span>
+                <span id="status-jira" class="auth-status">Off</span>
               </div>
               <div class="integ-card">
                 <label class="integ-card-checkbox-label">
@@ -214,7 +213,7 @@
                   <span class="integ-card-name">Linear</span>
                 </label>
                 <button class="auth-btn" data-provider="linear">Connect</button>
-                <span id="status-linear" class="auth-status">Not connected</span>
+                <span id="status-linear" class="auth-status">Off</span>
               </div>
             </div>
           </div>
@@ -228,7 +227,7 @@
                   <span class="integ-card-name">Salesforce</span>
                 </label>
                 <button class="auth-btn" data-provider="salesforce">Connect</button>
-                <span id="status-salesforce" class="auth-status">Not connected</span>
+                <span id="status-salesforce" class="auth-status">Off</span>
               </div>
               <div class="integ-card">
                 <label class="integ-card-checkbox-label">
@@ -236,7 +235,7 @@
                   <span class="integ-card-name">HubSpot</span>
                 </label>
                 <button class="auth-btn" data-provider="hubspot">Connect</button>
-                <span id="status-hubspot" class="auth-status">Not connected</span>
+                <span id="status-hubspot" class="auth-status">Off</span>
               </div>
             </div>
           </div>
@@ -253,7 +252,7 @@
         <div class="local-ai-body">
           <div class="model-select-row">
             <select id="localModelSelect">
-              <option value="" disabled selected>Select a GGUF model to download...</option>
+               <option value="" disabled selected>Pick a model to download...</option>
               <option value="lmstudio-community/Meta-Llama-3.1-8B-Instruct-GGUF/Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf"
                 data-repo="lmstudio-community/Meta-Llama-3.1-8B-Instruct-GGUF"
                 data-file="Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf">
@@ -297,7 +296,7 @@
           <h1 class="panel-title">Settings</h1>
         </div>
         <div class="settings-body">
-          <p class="settings-empty">No additional settings available.</p>
+          <p class="settings-empty">Nothing here yet — maybe one day!</p>
         </div>
       </div>
 

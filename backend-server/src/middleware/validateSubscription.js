@@ -4,11 +4,11 @@ async function validateSubscription(req, res, next) {
   const { licenseKey, machineId } = req.body;
 
   if (!licenseKey || typeof licenseKey !== "string") {
-    return res.status(403).json({ ok: false, error: "Missing or invalid license key" });
+    return res.status(403).json({ ok: false, error: "That doesn't look like a valid license key" });
   }
 
   if (!supabase) {
-    console.warn("[VALIDATE] Supabase not configured — allowing request by default");
+    console.warn("[VALIDATE] Supabase isn't configured — letting this one through");
     req.machineId = machineId || null;
     return next();
   }
@@ -22,18 +22,18 @@ async function validateSubscription(req, res, next) {
       .maybeSingle();
 
     if (error) {
-      console.error("[VALIDATE] Supabase query error:", error.message);
-      return res.status(403).json({ ok: false, error: "License validation failed" });
+      console.error("[VALIDATE] Couldn't check the license:", error.message);
+      return res.status(403).json({ ok: false, error: "Couldn't verify your license right now" });
     }
 
     if (!data) {
-      return res.status(403).json({ ok: false, error: "Invalid or inactive license key" });
+      return res.status(403).json({ ok: false, error: "That license key doesn't look active" });
     }
 
     req.machineId = data.machine_id || machineId || null;
     next();
   } catch (err) {
-    console.error("[VALIDATE] Unexpected error:", err.message);
+    console.error("[VALIDATE] Something unexpected happened:", err.message);
     return res.status(500).json({ ok: false, error: "Internal server error" });
   }
 }

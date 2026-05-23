@@ -113,11 +113,11 @@ app.get("/api/v1/auth/:provider/connect", (req, res) => {
   }
 
   if (!machineId) {
-    return res.status(400).send("Missing machineId query parameter");
+    return res.status(400).send("Missing machine ID — can't start OAuth without it");
   }
 
-  if (!config.clientId) {
-    return res.status(501).send(`OAuth not configured for ${provider}: missing client_id. Set ${provider.toUpperCase()}_CLIENT_ID in .env`);
+    if (!config.clientId) {
+    return res.status(501).send(`Can't connect ${provider} — no client ID set. Add ${provider.toUpperCase()}_CLIENT_ID to your .env file.`);
   }
 
   const redirectUri = `http://localhost:${redirectPort}/api/v1/auth/${provider}/callback`;
@@ -174,7 +174,7 @@ app.get("/api/v1/auth/:provider/callback", async (req, res) => {
     const refreshToken = tokenData.refresh_token || null;
 
     if (!accessToken) {
-      console.error(`[OAUTH:${provider}] Token exchange failed:`, tokenData);
+      console.error(`[OAUTH:${provider}] Couldn't swap the auth code for a token:`, tokenData);
       return res.status(502).send("Token exchange failed");
     }
 
@@ -221,14 +221,14 @@ app.get("/api/v1/auth/:provider/callback", async (req, res) => {
 app.post("/api/v1/auth/verify-license", async (req, res) => {
   const { licenseKey, machineId } = req.body;
 
-  console.log(`[AUTH] Verifying License: ${licenseKey} for Machine: ${machineId}`);
+  console.log(`[AUTH] Checking license: ${licenseKey} for machine ${machineId}`);
 
   if (!licenseKey || typeof licenseKey !== "string") {
-    return res.status(403).json({ ok: false, error: "Missing or invalid license key" });
+    return res.status(403).json({ ok: false, error: "That doesn't look like a valid license key" });
   }
 
   if (!machineId || typeof machineId !== "string") {
-    return res.status(403).json({ ok: false, error: "Machine fingerprint is required" });
+    return res.status(403).json({ ok: false, error: "I need your machine ID to verify" });
   }
 
   if (!supabase) {
@@ -258,21 +258,21 @@ app.post("/api/v1/auth/verify-license", async (req, res) => {
         return res.status(500).json({ ok: false, error: "Failed to bind license to machine" });
       }
 
-      console.log(`[AUTH] License ${licenseKey} bound to machine ${machineId}`);
+      console.log(`[AUTH] License ${licenseKey} is now tied to machine ${machineId}`);
       return res.json({ ok: true });
     }
 
     if (data.machine_id !== machineId) {
-      return res.status(403).json({ ok: false, error: "License violation: This key is already bound to another machine." });
+      return res.status(403).json({ ok: false, error: "This license is already in use on another machine." });
     }
 
     return res.json({ ok: true });
   } catch (err) {
     console.error("[VERIFY-LICENSE]", err.message);
-    return res.status(500).json({ ok: false, error: "Internal server error" });
+    return res.status(500).json({ ok: false, error: "Something went wrong on our end" });
   }
 });
 
 app.listen(PORT, () => {
-  console.log(`[backend] B2B AI Proxy running on port ${PORT}`);
+  console.log(`[backend] MutexFlow server is up on port ${PORT}`);
 });

@@ -1,3 +1,5 @@
+// These are the cloud AI providers we'll try, in order.
+// If one's busy or slow, we move to the next.
 const CLOUD_CASCADES = [
   { name: 'Cerebras', url: 'https://api.cerebras.ai/v1/chat/completions', model: 'llama3.1-8b', key: process.env.CEREBRAS_API_KEY },
   { name: 'Groq', url: 'https://api.groq.com/openai/v1/chat/completions', model: 'llama-3.3-70b-versatile', key: process.env.GROQ_API_KEY },

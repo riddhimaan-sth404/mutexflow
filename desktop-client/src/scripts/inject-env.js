@@ -1,10 +1,7 @@
-const fs = require("fs");
-const path = require("path");
-
-const backendUrl = process.env.BACKEND_URL || "http://localhost:3001";
-const configPath = path.join(__dirname, "..", "config.js");
-
-const content = `const BACKEND_URL = ${JSON.stringify(backendUrl)};\n\nmodule.exports = { BACKEND_URL };\n`;
-
-fs.writeFileSync(configPath, content, "utf-8");
-console.log(`[inject] BACKEND_URL set to ${backendUrl}`);
+console.warn(
+  "[inject-env] This script is deprecated. config.js now reads BACKEND_URL from process.env at runtime.\n" +
+  "Set the environment variable before launching the app instead:\n" +
+  "  $env:BACKEND_URL='http://your-server'; npm start\n" +
+  "Or pass it via electron-builder: --extraEnv.BACKEND_URL=...\n" +
+  "No changes were made."
+);

@@ -32,7 +32,7 @@ let hardwareFingerprint = "UNKNOWN_HWID";
 try {
   hardwareFingerprint = machineIdSync({ original: true });
 } catch (err) {
-  console.error("[SYSTEM] Failed to read HWID:", err.message);
+  console.error("[SYSTEM] Couldn't read machine ID:", err.message);
 }
 
 let llamaProcess = null;
@@ -57,9 +57,9 @@ function killLlamaProcess() {
   if (llamaProcess) {
     try {
       llamaProcess.kill("SIGTERM");
-      console.log("[llama.cpp] Process terminated.");
+      console.log("[llama.cpp] Local engine stopped.");
     } catch (err) {
-      console.error("[llama.cpp] Kill error:", err.message);
+      console.error("[llama.cpp] Couldn't stop the engine:", err.message);
     }
     llamaProcess = null;
   }
@@ -81,7 +81,7 @@ async function waitForLlamaReady(timeoutMs) {
 
 ipcMain.handle("auth:verify-license", async (_event, { licenseKey }) => {
   if (!licenseKey) {
-    return { ok: false, error: "License key is required" };
+    return { ok: false, error: "I need your license key to check" };
   }
 
   try {
@@ -91,10 +91,15 @@ ipcMain.handle("auth:verify-license", async (_event, { licenseKey }) => {
       body: JSON.stringify({ licenseKey, machineId: hardwareFingerprint }),
     });
 
+    if (!response.ok) {
+      const text = await response.text().catch(() => "");
+      return { ok: false, error: `License server returned HTTP ${response.status}${text ? ": " + text.slice(0, 200) : ""}` };
+    }
+
     const data = await response.json();
     return data;
   } catch (err) {
-    return { ok: false, error: `License verification failed: ${err.message}` };
+    return { ok: false, error: `Couldn't reach the license server: ${err.message}` };
   }
 });
 
@@ -118,27 +123,27 @@ ipcMain.handle("agent:run-local", async (_event, { prompt, taskComplexity, workf
     clearTimeout(timeout);
 
     if (!response.ok) {
-      return { ok: false, error: `llama.cpp returned HTTP ${response.status}` };
+      return { ok: false, error: `Local AI returned HTTP ${response.status}` };
     }
 
     const data = await response.json();
     const content = data.choices?.[0]?.message?.content;
     if (!content) {
-      return { ok: false, error: "Empty response from local model" };
+      return { ok: false, error: "The local model didn't say anything back" };
     }
 
     return { ok: true, result: content };
   } catch (err) {
     if (err.name === "AbortError") {
-      return { ok: false, error: "Local Core request timed out after 60s" };
+      return { ok: false, error: "The local AI took too long (60s timeout)" };
     }
-    return { ok: false, error: `Local Core connection failed: ${err.message}` };
+    return { ok: false, error: `Couldn't reach your local AI: ${err.message}` };
   }
 });
 
 ipcMain.handle("agent:run-byok", async (_event, { prompt, taskComplexity, workflowType, byokKey }) => {
   if (!byokKey) {
-    return { ok: false, error: "OpenRouter key is required for BYOK mode" };
+    return { ok: false, error: "I need your OpenRouter key for this mode" };
   }
 
   try {
@@ -170,21 +175,21 @@ ipcMain.handle("agent:run-byok", async (_event, { prompt, taskComplexity, workfl
     const data = await response.json();
     const content = data.choices?.[0]?.message?.content;
     if (!content) {
-      return { ok: false, error: "Empty response from OpenRouter" };
+      return { ok: false, error: "OpenRouter didn't return anything useful" };
     }
 
     return { ok: true, result: content };
   } catch (err) {
     if (err.name === "AbortError") {
-      return { ok: false, error: "BYOK request timed out after 120s" };
+      return { ok: false, error: "That took too long (120s timeout)" };
     }
-    return { ok: false, error: `BYOK request failed: ${err.message}` };
+    return { ok: false, error: `OpenRouter request failed: ${err.message}` };
   }
 });
 
 ipcMain.handle("agent:run-standard", async (_event, { prompt, licenseKey, taskComplexity, workflowType, targetIntegrations }) => {
   if (!prompt || !licenseKey) {
-    return { ok: false, error: "Prompt and license key are required" };
+    return { ok: false, error: "I need both a prompt and your license key" };
   }
 
   try {
@@ -202,16 +207,16 @@ ipcMain.handle("agent:run-standard", async (_event, { prompt, licenseKey, taskCo
 
     if (!response.ok) {
       const text = await response.text().catch(() => "");
-      return { ok: false, error: `Backend returned HTTP ${response.status}${text ? ": " + text.slice(0, 200) : ""}` };
+      return { ok: false, error: `Cloud engine returned HTTP ${response.status}${text ? ": " + text.slice(0, 200) : ""}` };
     }
 
     const data = await response.json();
     return data;
   } catch (err) {
     if (err.name === "AbortError") {
-      return { ok: false, error: "Request timed out after 120s" };
+      return { ok: false, error: "The cloud took too long (120s timeout)" };
     }
-    return { ok: false, error: `Connection dropped: ${err.message}` };
+    return { ok: false, error: `Couldn't reach the cloud: ${err.message}` };
   }
 });
 
@@ -221,12 +226,12 @@ ipcMain.handle("download-gguf-model", async (_event, { repo, file }) => {
 
   try {
     if (fs.existsSync(destPath)) {
-      return { ok: true, message: "Model already downloaded" };
+      return { ok: true, message: "You've already got this model!" };
     }
 
     const response = await fetch(url);
     if (!response.ok) {
-      return { ok: false, error: `Hugging Face returned HTTP ${response.status}` };
+      return { ok: false, error: `Hugging Face said no (HTTP ${response.status})` };
     }
 
     const total = parseInt(response.headers.get("content-length") || "0", 10);
@@ -257,7 +262,7 @@ ipcMain.handle("download-gguf-model", async (_event, { repo, file }) => {
     if (fs.existsSync(destPath)) {
       try { fs.unlinkSync(destPath); } catch {}
     }
-    return { ok: false, error: `Download failed: ${err.message}` };
+    return { ok: false, error: `Download didn't finish: ${err.message}` };
   }
 });
 
@@ -272,16 +277,16 @@ ipcMain.handle("spawn-llama-cpp", async (_event, { modelFile }) => {
   }
 
   if (!fs.existsSync(llamaCppPath)) {
-    return { ok: false, error: `llama server binary not found at ${llamaCppPath}. Place it in resources/bin/.` };
+    return { ok: false, error: "Can't find the llama engine binary. Drop it in resources/bin/ and try again." };
   }
 
   if (!modelFile) {
-    return { ok: false, error: "No model file selected. Select a model in Local AI Hub first." };
+    return { ok: false, error: "Pick a model first — head to Local AI Hub and choose one." };
   }
 
   const modelPath = path.join(modelsDir, modelFile);
   if (!fs.existsSync(modelPath)) {
-    return { ok: false, error: `Model file not found at ${modelPath}. Download it first via Local AI Hub.` };
+    return { ok: false, error: "I can't find that model file. Download it from Local AI Hub first." };
   }
 
   const args = [
@@ -317,13 +322,13 @@ ipcMain.handle("spawn-llama-cpp", async (_event, { modelFile }) => {
     const ready = await waitForLlamaReady(30000);
     if (!ready) {
       killLlamaProcess();
-      return { ok: false, error: "llama.cpp failed to start within 30s. Check the model path and logs." };
+      return { ok: false, error: "The local engine didn't start in time. Check your model path and logs." };
     }
 
     return { ok: true };
   } catch (err) {
     killLlamaProcess();
-    return { ok: false, error: `Failed to spawn llama.cpp: ${err.message}` };
+    return { ok: false, error: `Couldn't start the local engine: ${err.message}` };
   }
 });
 
@@ -335,10 +340,15 @@ ipcMain.handle("integrations:dispatch", async (_event, { result, workflowType, t
       body: JSON.stringify({ result, workflowType, taskComplexity, prompt, licenseKey, targetIntegrations, machineId: hardwareFingerprint }),
     });
 
+    if (!response.ok) {
+      const text = await response.text().catch(() => "");
+      return { ok: false, error: `Integration server returned HTTP ${response.status}${text ? ": " + text.slice(0, 200) : ""}` };
+    }
+
     const data = await response.json();
     return data;
   } catch (err) {
-    return { ok: false, error: `Integration dispatch failed: ${err.message}` };
+    return { ok: false, error: `Couldn't push to your apps: ${err.message}` };
   }
 });
 
@@ -356,7 +366,7 @@ ipcMain.handle("oauth:connect", async (_event, { provider }) => {
     }
   }
 
-  return { ok: false, error: "OAuth timed out after 120s" };
+  return { ok: false, error: "Didn't hear back from the app — try again?" };
 });
 
 app.whenReady().then(createWindow);
