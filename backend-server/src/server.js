@@ -7,7 +7,6 @@ const os = require("os");
 const express = require("express");
 const cors = require("cors");
 const axios = require("axios");
-const { createClient } = require("@supabase/supabase-js");
 const agentRouter = require("./routes/agent");
 
 const PORT = process.env.PORT || 3001;
@@ -19,10 +18,7 @@ app.use(cors());
 app.use(express.json({ limit: "1mb" }));
 app.use("/api/v1", agentRouter);
 
-const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseKey = process.env.SUPABASE_SERVICE_KEY;
-
-const supabase = supabaseUrl && supabaseKey ? createClient(supabaseUrl, supabaseKey) : null;
+const { supabase } = require("./config/db");
 
 const oauthSignalDir = path.join(os.tmpdir(), "mutexflow-oauth");
 if (!fs.existsSync(oauthSignalDir)) {

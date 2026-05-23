@@ -6,10 +6,9 @@
   "main": "src/main.js",
   "scripts": {
     "start": "electron src/main.js",
-    "inject-env": "node src/scripts/inject-env.js",
-    "build:win": "node src/scripts/inject-env.js && electron-builder --win",
-    "build:mac": "node src/scripts/inject-env.js && electron-builder --mac",
-    "build:linux": "node src/scripts/inject-env.js && electron-builder --linux"
+    "build:win": "electron-builder --win",
+    "build:mac": "electron-builder --mac",
+    "build:linux": "electron-builder --linux"
   },
   "devDependencies": {
     "electron": "^33.3.1",

@@ -1,13 +1,5 @@
-const { createClient } = require("@supabase/supabase-js");
 const querystring = require("querystring");
-
-const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseKey = process.env.SUPABASE_SERVICE_KEY;
-
-let supabase = null;
-if (supabaseUrl && supabaseKey) {
-  supabase = createClient(supabaseUrl, supabaseKey);
-}
+const { supabase } = require("../config/db");
 
 async function getTokens(machineId, provider) {
   if (!supabase) return null;
@@ -124,7 +116,8 @@ async function updateGoogleSheetRow(data, machineId) {
   }
 
   try {
-    const res = await fetch("https://sheets.googleapis.com/v4/spreadsheets/Sheet1/values/A1:append?valueInputOption=USER_ENTERED", {
+    const spreadsheetId = process.env.GOOGLE_SHEET_ID || "Sheet1";
+    const res = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(spreadsheetId)}/values/A1:append?valueInputOption=USER_ENTERED`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

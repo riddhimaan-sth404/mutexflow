@@ -25,7 +25,8 @@ if (!fs.existsSync(oauthSignalDir)) {
   fs.mkdirSync(oauthSignalDir, { recursive: true });
 }
 
-const llamaCppPath = path.join(__dirname, "..", "resources", "bin", "llama-server.exe");
+const llamaBinary = process.platform === "win32" ? "llama-server.exe" : "llama-server";
+const llamaCppPath = path.join(process.resourcesPath || path.join(__dirname, ".."), "resources", "bin", llamaBinary);
 
 let hardwareFingerprint = "UNKNOWN_HWID";
 try {
@@ -199,6 +200,11 @@ ipcMain.handle("agent:run-standard", async (_event, { prompt, licenseKey, taskCo
 
     clearTimeout(timeout);
 
+    if (!response.ok) {
+      const text = await response.text().catch(() => "");
+      return { ok: false, error: `Backend returned HTTP ${response.status}${text ? ": " + text.slice(0, 200) : ""}` };
+    }
+
     const data = await response.json();
     return data;
   } catch (err) {
@@ -228,7 +234,7 @@ ipcMain.handle("download-gguf-model", async (_event, { repo, file }) => {
     const writeStream = fs.createWriteStream(destPath);
     let downloaded = 0;
 
-    async function pump() {
+    try {
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
@@ -242,15 +248,14 @@ ipcMain.handle("download-gguf-model", async (_event, { repo, file }) => {
           });
         }
       }
+    } finally {
+      await new Promise((resolve) => writeStream.end(resolve));
     }
-
-    await pump();
-    await new Promise((resolve) => writeStream.end(resolve));
 
     return { ok: true };
   } catch (err) {
     if (fs.existsSync(destPath)) {
-      fs.unlinkSync(destPath);
+      try { fs.unlinkSync(destPath); } catch {}
     }
     return { ok: false, error: `Download failed: ${err.message}` };
   }
@@ -267,11 +272,15 @@ ipcMain.handle("spawn-llama-cpp", async (_event, { modelFile }) => {
   }
 
   if (!fs.existsSync(llamaCppPath)) {
-    return { ok: false, error: `llama-server.exe not found at ${llamaCppPath}. Place the binary in resources/bin/` };
+    return { ok: false, error: `llama server binary not found at ${llamaCppPath}. Place it in resources/bin/.` };
   }
 
-  const modelPath = modelFile ? path.join(modelsDir, modelFile) : null;
-  if (modelFile && !fs.existsSync(modelPath)) {
+  if (!modelFile) {
+    return { ok: false, error: "No model file selected. Select a model in Local AI Hub first." };
+  }
+
+  const modelPath = path.join(modelsDir, modelFile);
+  if (!fs.existsSync(modelPath)) {
     return { ok: false, error: `Model file not found at ${modelPath}. Download it first via Local AI Hub.` };
   }
 
