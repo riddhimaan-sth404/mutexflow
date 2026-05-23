@@ -123,9 +123,6 @@ const integrationHandlers = {
   github: async (data, machineId) => {
     await createGithubIssue(data, machineId);
   },
-  microsoft: async (data, machineId) => {
-    console.log("[INTEGRATION:MICROSOFT] Microsoft 365 dispatch not yet implemented");
-  },
   notion: async (data, machineId) => {
     console.log("[INTEGRATION:NOTION] Notion dispatch not yet implemented");
   },
