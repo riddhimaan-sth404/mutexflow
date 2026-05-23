@@ -164,18 +164,12 @@ accountsToggle.addEventListener("click", () => {
 authBtns.forEach((btn) => {
   btn.addEventListener("click", async () => {
     const provider = btn.dataset.provider;
-    const licenseKey = licenseKeyInput.value.trim();
-    if (!licenseKey) {
-      appendLog("[SYSTEM] Enter a license key before connecting accounts.", "system");
-      return;
-    }
-    const connectionId = "org-" + licenseKey.slice(0, 8);
     btn.disabled = true;
     btn.textContent = "Connecting...";
     try {
-      const result = await window.api.nangoAuth(provider, connectionId);
+      const result = await window.api.openOAuthPopup(provider);
       if (result.ok) {
-        connectedAccounts[provider] = result.connectionId || connectionId;
+        connectedAccounts[provider] = provider;
         const statusEl = document.getElementById(STATUS_IDS[provider]);
         if (statusEl) {
           statusEl.textContent = "Connected";

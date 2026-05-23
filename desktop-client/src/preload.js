@@ -20,6 +20,6 @@ contextBridge.exposeInMainWorld("api", {
     ipcRenderer.on("download-progress", handler);
     return () => ipcRenderer.removeListener("download-progress", handler);
   },
-  nangoAuth: (provider, connectionId) =>
-    ipcRenderer.invoke("nango:auth", { provider, connectionId }),
+  openOAuthPopup: (provider) =>
+    ipcRenderer.invoke("oauth:connect", { provider }),
 });

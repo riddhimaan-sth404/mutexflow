@@ -16,7 +16,6 @@
     "electron-builder": "^25.1.8"
   },
   "dependencies": {
-    "@nangohq/frontend": "^0.70.4",
     "node-machine-id": "^1.1.7"
   }
 }

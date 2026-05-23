@@ -10,8 +10,8 @@
   },
   "dependencies": {
     "@heyputer/puter.js": "^2.2.14",
-    "@nangohq/node": "^0.70.4",
     "@supabase/supabase-js": "^2.106.1",
+    "axios": "^1.7.9",
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
     "express": "^4.21.2"

@@ -9,7 +9,7 @@ if (supabaseUrl && supabaseKey) {
 }
 
 async function validateSubscription(req, res, next) {
-  const { licenseKey } = req.body;
+  const { licenseKey, machineId } = req.body;
 
   if (!licenseKey || typeof licenseKey !== "string") {
     return res.status(403).json({ ok: false, error: "Missing or invalid license key" });
@@ -17,14 +17,14 @@ async function validateSubscription(req, res, next) {
 
   if (!supabase) {
     console.warn("[VALIDATE] Supabase not configured — allowing request by default");
-    req.nangoConnectionId = null;
+    req.machineId = machineId || null;
     return next();
   }
 
   try {
     const { data, error } = await supabase
       .from("licenses")
-      .select("id, nango_connection_id")
+      .select("id, machine_id")
       .eq("key", licenseKey)
       .eq("status", "active")
       .maybeSingle();
@@ -38,7 +38,7 @@ async function validateSubscription(req, res, next) {
       return res.status(403).json({ ok: false, error: "Invalid or inactive license key" });
     }
 
-    req.nangoConnectionId = data.nango_connection_id || null;
+    req.machineId = data.machine_id || machineId || null;
     next();
   } catch (err) {
     console.error("[VALIDATE] Unexpected error:", err.message);

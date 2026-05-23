@@ -59,7 +59,7 @@ router.post("/agent/process-standard", validateSubscription, async (req, res) =>
     processIntegrations(
       { result, workflowType, taskComplexity, prompt },
       targetIntegrations,
-      req.nangoConnectionId
+      req.machineId
     );
 
     return res.json({ ok: true, result });
@@ -76,7 +76,7 @@ router.post("/integrations/dispatch", validateSubscription, async (req, res) => 
     processIntegrations(
       { result, workflowType, taskComplexity, prompt },
       targetIntegrations,
-      req.nangoConnectionId
+      req.machineId
     );
 
     return res.json({ ok: true });

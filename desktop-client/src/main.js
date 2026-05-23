@@ -8,9 +8,6 @@ const path = require("path");
 const fs = require("fs");
 const { spawn } = require("child_process");
 const { BACKEND_URL } = require("./config");
-const { machineIdSync } = require("node-machine-id");
-
-const NANGO_HOST = process.env.NANGO_HOST || "http://localhost:3003";
 
 const isEncryptionAvailable = safeStorage.isEncryptionAvailable();
 let backendUrl = BACKEND_URL;
@@ -333,9 +330,9 @@ ipcMain.handle("integrations:dispatch", async (_event, { result, workflowType, t
   }
 });
 
-ipcMain.handle("nango:auth", async (_event, { provider, connectionId }) => {
+ipcMain.handle("oauth:connect", async (_event, { provider }) => {
   return new Promise((resolve) => {
-    const authUrl = `${NANGO_HOST}/oauth/auth?provider_config_key=${provider}&connection_id=${connectionId}`;
+    const authUrl = `http://localhost:3001/api/v1/auth/${provider}/connect?machineId=${encodeURIComponent(hardwareFingerprint)}`;
 
     const authWindow = new BrowserWindow({
       width: 800,
@@ -351,9 +348,9 @@ ipcMain.handle("nango:auth", async (_event, { provider, connectionId }) => {
     authWindow.loadURL(authUrl);
 
     authWindow.webContents.on("will-redirect", (_event, url) => {
-      if (url.startsWith(`${NANGO_HOST}/oauth/callback`)) {
+      if (url.includes(`/api/v1/auth/${provider}/callback`)) {
         authWindow.close();
-        resolve({ ok: true, provider, connectionId });
+        resolve({ ok: true, provider });
       }
     });
 
