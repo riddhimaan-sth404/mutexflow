@@ -107,6 +107,45 @@ async function createGithubIssue(data, machineId) {
   }
 }
 
+const integrationHandlers = {
+  slack: async (data, machineId) => {
+    await sendSlackNotification(data, machineId);
+  },
+  gmail: async (data, machineId) => {
+    console.log("[INTEGRATION:GMAIL] Gmail dispatch not yet implemented");
+  },
+  google_sheets: async (data, machineId) => {
+    await updateGoogleSheetRow(data, machineId);
+  },
+  google: async (data, machineId) => {
+    await updateGoogleSheetRow(data, machineId);
+  },
+  github: async (data, machineId) => {
+    await createGithubIssue(data, machineId);
+  },
+  microsoft: async (data, machineId) => {
+    console.log("[INTEGRATION:MICROSOFT] Microsoft 365 dispatch not yet implemented");
+  },
+  notion: async (data, machineId) => {
+    console.log("[INTEGRATION:NOTION] Notion dispatch not yet implemented");
+  },
+  confluence: async (data, machineId) => {
+    console.log("[INTEGRATION:CONFLUENCE] Confluence dispatch not yet implemented");
+  },
+  jira: async (data, machineId) => {
+    console.log("[INTEGRATION:JIRA] Jira dispatch not yet implemented");
+  },
+  linear: async (data, machineId) => {
+    console.log("[INTEGRATION:LINEAR] Linear dispatch not yet implemented");
+  },
+  salesforce: async (data, machineId) => {
+    console.log("[INTEGRATION:SALESFORCE] Salesforce dispatch not yet implemented");
+  },
+  hubspot: async (data, machineId) => {
+    console.log("[INTEGRATION:HUBSPOT] HubSpot dispatch not yet implemented");
+  },
+};
+
 async function processIntegrations(resultData, targetIntegrations, machineId) {
   if (!targetIntegrations || targetIntegrations.length === 0) {
     console.log("[INTEGRATIONS] No target integrations configured.");
@@ -121,22 +160,14 @@ async function processIntegrations(resultData, targetIntegrations, machineId) {
   console.log("[INTEGRATIONS] Processing integrations for:", targetIntegrations.join(", "));
 
   for (const integration of targetIntegrations) {
-    try {
-      switch (integration) {
-        case "slack":
-          await sendSlackNotification(resultData, machineId);
-          break;
-        case "google_sheets":
-          await updateGoogleSheetRow(resultData, machineId);
-          break;
-        case "github":
-          await createGithubIssue(resultData, machineId);
-          break;
-        default:
-          console.log(`[INTEGRATIONS] Unknown integration target: ${integration}`);
+    if (integrationHandlers[integration]) {
+      try {
+        await integrationHandlers[integration](resultData, machineId);
+      } catch (err) {
+        console.error(`[INTEGRATIONS] Error processing ${integration}: ${err.message}`);
       }
-    } catch (err) {
-      console.error(`[INTEGRATIONS] Error processing ${integration}: ${err.message}`);
+    } else {
+      console.log(`[INTEGRATIONS] Unknown integration target: ${integration}`);
     }
   }
 

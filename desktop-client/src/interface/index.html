@@ -9,10 +9,10 @@
 </head>
 <body>
   <div class="app">
-    <header class="header">
-      <h1>B2B AI Agent</h1>
-      <span class="badge">Enterprise</span>
-    </header>
+      <header class="header">
+        <h1>MutexFlow Enterprise</h1>
+        <span class="badge">Enterprise</span>
+      </header>
 
     <section class="controls">
       <div class="field-row">
@@ -50,41 +50,126 @@
       </div>
     </section>
 
-    <section class="integrations">
-      <span class="integrations-label">Automated Destinations</span>
-      <label class="checkbox-row">
-        <input type="checkbox" id="integSlack" value="slack">
-        <span>Forward to Slack</span>
-      </label>
-      <label class="checkbox-row">
-        <input type="checkbox" id="integSheets" value="google_sheets">
-        <span>Log to Google Sheets</span>
-      </label>
-      <label class="checkbox-row">
-        <input type="checkbox" id="integGithub" value="github">
-        <span>Create GitHub Ticket</span>
-      </label>
-    </section>
+    <section class="integrations-hub">
+      <div class="hub-header">
+        <span class="hub-title">Enterprise Integration Hub</span>
+        <input type="text" id="hubSearch" class="hub-search" placeholder="Filter integrations..." spellcheck="false">
+      </div>
 
-    <section class="accounts-section">
-      <button id="accountsToggle" class="accounts-toggle">Connected Accounts Settings</button>
-      <div id="accountsPanel" class="accounts-panel hidden">
-        <span class="accounts-panel-label">Authenticate to enable live API actions</span>
-        <div class="account-row">
-          <span class="account-name">Slack</span>
-          <button class="auth-btn" data-provider="slack">Connect Slack Workspace</button>
-          <span id="statusSlack" class="auth-status">Not connected</span>
+      <div class="hub-grid" id="integrationsHub">
+
+        <div class="hub-category">
+          <span class="hub-category-title">Communications</span>
+          <div class="hub-category-cards">
+            <div class="integ-card">
+              <label class="integ-card-checkbox-label">
+                <input type="checkbox" class="integ-card-checkbox" value="slack">
+                <span class="integ-card-name">Slack</span>
+              </label>
+              <button class="auth-btn" data-provider="slack">Connect</button>
+              <span id="status-slack" class="auth-status">Not connected</span>
+            </div>
+            <div class="integ-card">
+              <label class="integ-card-checkbox-label">
+                <input type="checkbox" class="integ-card-checkbox" value="microsoft">
+                <span class="integ-card-name">Microsoft Teams</span>
+              </label>
+              <button class="auth-btn" data-provider="microsoft">Connect</button>
+              <span id="status-microsoft" class="auth-status">Not connected</span>
+            </div>
+            <div class="integ-card">
+              <label class="integ-card-checkbox-label">
+                <input type="checkbox" class="integ-card-checkbox" value="gmail">
+                <span class="integ-card-name">Gmail</span>
+              </label>
+              <button class="auth-btn" data-provider="google">Connect</button>
+              <span id="status-gmail" class="auth-status">Not connected</span>
+            </div>
+          </div>
         </div>
-        <div class="account-row">
-          <span class="account-name">Google Sheets</span>
-          <button class="auth-btn" data-provider="google-sheets">Connect Google Account</button>
-          <span id="statusSheets" class="auth-status">Not connected</span>
+
+        <div class="hub-category">
+          <span class="hub-category-title">Knowledge &amp; Data</span>
+          <div class="hub-category-cards">
+            <div class="integ-card">
+              <label class="integ-card-checkbox-label">
+                <input type="checkbox" class="integ-card-checkbox" value="google_sheets">
+                <span class="integ-card-name">Google Sheets</span>
+              </label>
+              <button class="auth-btn" data-provider="google">Connect</button>
+              <span id="status-google_sheets" class="auth-status">Not connected</span>
+            </div>
+            <div class="integ-card">
+              <label class="integ-card-checkbox-label">
+                <input type="checkbox" class="integ-card-checkbox" value="notion">
+                <span class="integ-card-name">Notion</span>
+              </label>
+              <button class="auth-btn" data-provider="notion">Connect</button>
+              <span id="status-notion" class="auth-status">Not connected</span>
+            </div>
+            <div class="integ-card">
+              <label class="integ-card-checkbox-label">
+                <input type="checkbox" class="integ-card-checkbox" value="confluence">
+                <span class="integ-card-name">Confluence</span>
+              </label>
+              <button class="auth-btn" data-provider="confluence">Connect</button>
+              <span id="status-confluence" class="auth-status">Not connected</span>
+            </div>
+          </div>
         </div>
-        <div class="account-row">
-          <span class="account-name">GitHub</span>
-          <button class="auth-btn" data-provider="github">Connect GitHub Account</button>
-          <span id="statusGithub" class="auth-status">Not connected</span>
+
+        <div class="hub-category">
+          <span class="hub-category-title">Engineering &amp; Product</span>
+          <div class="hub-category-cards">
+            <div class="integ-card">
+              <label class="integ-card-checkbox-label">
+                <input type="checkbox" class="integ-card-checkbox" value="github">
+                <span class="integ-card-name">GitHub</span>
+              </label>
+              <button class="auth-btn" data-provider="github">Connect</button>
+              <span id="status-github" class="auth-status">Not connected</span>
+            </div>
+            <div class="integ-card">
+              <label class="integ-card-checkbox-label">
+                <input type="checkbox" class="integ-card-checkbox" value="jira">
+                <span class="integ-card-name">Jira</span>
+              </label>
+              <button class="auth-btn" data-provider="jira">Connect</button>
+              <span id="status-jira" class="auth-status">Not connected</span>
+            </div>
+            <div class="integ-card">
+              <label class="integ-card-checkbox-label">
+                <input type="checkbox" class="integ-card-checkbox" value="linear">
+                <span class="integ-card-name">Linear</span>
+              </label>
+              <button class="auth-btn" data-provider="linear">Connect</button>
+              <span id="status-linear" class="auth-status">Not connected</span>
+            </div>
+          </div>
         </div>
+
+        <div class="hub-category">
+          <span class="hub-category-title">CRM &amp; Sales</span>
+          <div class="hub-category-cards">
+            <div class="integ-card">
+              <label class="integ-card-checkbox-label">
+                <input type="checkbox" class="integ-card-checkbox" value="salesforce">
+                <span class="integ-card-name">Salesforce</span>
+              </label>
+              <button class="auth-btn" data-provider="salesforce">Connect</button>
+              <span id="status-salesforce" class="auth-status">Not connected</span>
+            </div>
+            <div class="integ-card">
+              <label class="integ-card-checkbox-label">
+                <input type="checkbox" class="integ-card-checkbox" value="hubspot">
+                <span class="integ-card-name">HubSpot</span>
+              </label>
+              <button class="auth-btn" data-provider="hubspot">Connect</button>
+              <span id="status-hubspot" class="auth-status">Not connected</span>
+            </div>
+          </div>
+        </div>
+
       </div>
     </section>
 

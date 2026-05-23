@@ -9,18 +9,14 @@ const executeBtn = document.getElementById("executeBtn");
 const logOutput = document.getElementById("logOutput");
 const clearBtn = document.getElementById("clearBtn");
 const spinner = document.getElementById("spinner");
-const integSlack = document.getElementById("integSlack");
-const integSheets = document.getElementById("integSheets");
-const integGithub = document.getElementById("integGithub");
-const accountsToggle = document.getElementById("accountsToggle");
-const accountsPanel = document.getElementById("accountsPanel");
-const authBtns = document.querySelectorAll(".auth-btn");
 const localAiToggle = document.getElementById("localAiToggle");
 const localAiPanel = document.getElementById("localAiPanel");
 const localModelSelect = document.getElementById("localModelSelect");
 const downloadModelBtn = document.getElementById("downloadModelBtn");
 const downloadProgressBar = document.getElementById("downloadProgressBar");
 const downloadStatusText = document.getElementById("downloadStatusText");
+const integrationsHub = document.getElementById("integrationsHub");
+const hubSearch = document.getElementById("hubSearch");
 
 const MODE_STORAGE_KEY = "mutexflow_inference_mode";
 const BYOK_KEY_STORAGE_KEY = "mutexflow_byok_key";
@@ -38,12 +34,6 @@ const DEFAULT_BTN_TEXT = "Run Agent";
 let removeProgressListener = null;
 
 const connectedAccounts = {};
-
-const STATUS_IDS = {
-  slack: "statusSlack",
-  "google-sheets": "statusSheets",
-  github: "statusGithub",
-};
 
 const savedMode = localStorage.getItem(MODE_STORAGE_KEY);
 if (savedMode) {
@@ -156,36 +146,44 @@ promptInput.addEventListener("keydown", (e) => {
   }
 });
 
-accountsToggle.addEventListener("click", () => {
-  accountsPanel.classList.toggle("hidden");
-  accountsToggle.classList.toggle("active");
+hubSearch.addEventListener("input", () => {
+  const query = hubSearch.value.toLowerCase().trim();
+  const cards = integrationsHub.querySelectorAll(".integ-card");
+  for (const card of cards) {
+    const name = card.querySelector(".integ-card-name");
+    if (name) {
+      const match = name.textContent.toLowerCase().includes(query);
+      card.style.display = match ? "" : "none";
+    }
+  }
 });
 
-authBtns.forEach((btn) => {
-  btn.addEventListener("click", async () => {
-    const provider = btn.dataset.provider;
-    btn.disabled = true;
-    btn.textContent = "Connecting...";
-    try {
-      const result = await window.api.openOAuthPopup(provider);
-      if (result.ok) {
-        connectedAccounts[provider] = provider;
-        const statusEl = document.getElementById(STATUS_IDS[provider]);
-        if (statusEl) {
-          statusEl.textContent = "Connected";
-          statusEl.className = "auth-status connected";
-        }
-        appendLog("[SYSTEM] " + provider + " workspace connected.", "system");
-      } else {
-        appendLog("[SYSTEM] " + provider + " auth failed: " + (result.error || "cancelled"), "system");
+integrationsHub.addEventListener("click", async (e) => {
+  const btn = e.target.closest(".auth-btn");
+  if (!btn) return;
+
+  const provider = btn.dataset.provider;
+  btn.disabled = true;
+  btn.textContent = "Connecting...";
+  try {
+    const result = await window.api.openOAuthPopup(provider);
+    if (result.ok) {
+      connectedAccounts[provider] = provider;
+      const statusEl = document.getElementById("status-" + provider);
+      if (statusEl) {
+        statusEl.textContent = "Connected";
+        statusEl.className = "auth-status connected";
       }
-    } catch (err) {
-      appendLog("[SYSTEM] " + provider + " auth error: " + err.message, "system");
-    } finally {
-      btn.disabled = false;
-      btn.textContent = "Connect " + (provider === "slack" ? "Slack Workspace" : provider === "google-sheets" ? "Google Account" : "GitHub Account");
+      appendLog("[SYSTEM] " + provider + " workspace connected.", "system");
+    } else {
+      appendLog("[SYSTEM] " + provider + " auth failed: " + (result.error || "cancelled"), "system");
     }
-  });
+  } catch (err) {
+    appendLog("[SYSTEM] " + provider + " auth error: " + err.message, "system");
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Connect";
+  }
 });
 
 function appendLog(text, type) {
@@ -221,6 +219,15 @@ function startCooldown(seconds) {
   tick();
 }
 
+function getTargetIntegrations() {
+  const result = [];
+  const checked = integrationsHub.querySelectorAll(".integ-card-checkbox:checked");
+  for (const cb of checked) {
+    result.push(cb.value);
+  }
+  return result;
+}
+
 async function runAgent() {
   if (executeBtn.disabled) return;
 
@@ -240,10 +247,7 @@ async function runAgent() {
     return;
   }
 
-  const targetIntegrations = [];
-  if (integSlack.checked) targetIntegrations.push(integSlack.value);
-  if (integSheets.checked) targetIntegrations.push(integSheets.value);
-  if (integGithub.checked) targetIntegrations.push(integGithub.value);
+  const targetIntegrations = getTargetIntegrations();
 
   appendLog("[SYSTEM] Verifying license...", "system");
   setLoading(true);
