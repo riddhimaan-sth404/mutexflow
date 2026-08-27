@@ -1,0 +1,47 @@
+﻿<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:MutexFlow.Desktop.ViewModels"
+             x:Class="MutexFlow.Desktop.Views.SettingsView"
+             x:DataType="vm:SettingsViewModel">
+
+  <ScrollViewer VerticalScrollBarVisibility="Auto">
+    <StackPanel Spacing="16" Margin="24" MaxWidth="600" HorizontalAlignment="Left">
+
+      <!-- Header -->
+      <TextBlock Text="Settings" FontSize="22" FontWeight="Bold" Foreground="{StaticResource TextMain}" />
+
+      <Border Background="{StaticResource CardBg}"
+              BorderBrush="{StaticResource BorderDark}"
+              BorderThickness="1"
+              CornerRadius="10"
+              Padding="18">
+        <StackPanel Spacing="16">
+
+          <!-- Backend URL -->
+          <StackPanel Spacing="6">
+            <TextBlock Text="Backend Server URL" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource TextMuted}" />
+            <TextBox Text="{Binding BackendUrl}" Watermark="http://localhost:3001" />
+          </StackPanel>
+
+          <!-- Hardware Fingerprint -->
+          <StackPanel Spacing="6">
+            <TextBlock Text="Hardware Machine ID (Node-Lock Fingerprint)" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource TextMuted}" />
+            <TextBox Text="{Binding MachineId}" IsReadOnly="True" />
+          </StackPanel>
+
+          <!-- Save Button -->
+          <StackPanel Orientation="Horizontal" Spacing="12">
+            <Button Classes="primary" Command="{Binding SaveSettingsCommand}" Content="Save Settings" />
+            <TextBlock Text="{Binding StatusMessage}"
+                       Foreground="{StaticResource StatusSuccess}"
+                       VerticalAlignment="Center"
+                       FontSize="12" />
+          </StackPanel>
+
+        </StackPanel>
+      </Border>
+
+    </StackPanel>
+  </ScrollViewer>
+
+</UserControl>

@@ -1,0 +1,25 @@
+﻿# Rust
+target/
+**/*.rs.bk
+
+# .NET / C# / Avalonia
+bin/
+obj/
+*.user
+*.suo
+.vs/
+*.userprefs
+*.pidb
+*.booproj
+.idea/
+
+# Environment & Secrets
+.env
+.env.local
+*.dat
+*.log
+
+# OS & Temp
+.DS_Store
+Thumbs.db
+[Tt]emp/

@@ -1,0 +1,78 @@
+﻿<Styles xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+  <!-- Design Color Palette -->
+  <Styles.Resources>
+    <SolidColorBrush x:Key="BgDark">#121420</SolidColorBrush>
+    <SolidColorBrush x:Key="SidebarBg">#161824</SolidColorBrush>
+    <SolidColorBrush x:Key="CardBg">#1C1E30</SolidColorBrush>
+    <SolidColorBrush x:Key="BorderDark">#2A2D3E</SolidColorBrush>
+    <SolidColorBrush x:Key="BorderHover">#3A3D52</SolidColorBrush>
+    <SolidColorBrush x:Key="PrimaryPurple">#6C63FF</SolidColorBrush>
+    <SolidColorBrush x:Key="AccentPurple">#A78BFA</SolidColorBrush>
+    <SolidColorBrush x:Key="TextMain">#E8E6F0</SolidColorBrush>
+    <SolidColorBrush x:Key="TextMuted">#9D9BB0</SolidColorBrush>
+    <SolidColorBrush x:Key="StatusSuccess">#6EE7B7</SolidColorBrush>
+    <SolidColorBrush x:Key="StatusError">#FCA5A5</SolidColorBrush>
+  </Styles.Resources>
+
+  <!-- Global TextBlock -->
+  <Style Selector="TextBlock">
+    <Setter Property="Foreground" Value="{StaticResource TextMain}" />
+    <Setter Property="FontFamily" Value="Segoe UI, Inter, Arial, sans-serif" />
+  </Style>
+
+  <!-- Global TextBox -->
+  <Style Selector="TextBox">
+    <Setter Property="Background" Value="{StaticResource CardBg}" />
+    <Setter Property="Foreground" Value="{StaticResource TextMain}" />
+    <Setter Property="BorderBrush" Value="{StaticResource BorderDark}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="8" />
+    <Setter Property="Padding" Value="10,8" />
+  </Style>
+  <Style Selector="TextBox:focus /template/ Border#PART_BorderElement">
+    <Setter Property="BorderBrush" Value="{StaticResource PrimaryPurple}" />
+  </Style>
+
+  <!-- Global ComboBox -->
+  <Style Selector="ComboBox">
+    <Setter Property="Background" Value="{StaticResource CardBg}" />
+    <Setter Property="Foreground" Value="{StaticResource TextMain}" />
+    <Setter Property="BorderBrush" Value="{StaticResource BorderDark}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="8" />
+    <Setter Property="Padding" Value="10,6" />
+  </Style>
+
+  <!-- Primary Action Button -->
+  <Style Selector="Button.primary">
+    <Setter Property="Background">
+      <LinearGradientBrush StartPoint="0%,0%" EndPoint="100%,100%">
+        <GradientStop Color="#6C63FF" Offset="0" />
+        <GradientStop Color="#A78BFA" Offset="1" />
+      </LinearGradientBrush>
+    </Setter>
+    <Setter Property="Foreground" Value="White" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="CornerRadius" Value="8" />
+    <Setter Property="Padding" Value="16,10" />
+    <Setter Property="Cursor" Value="Hand" />
+  </Style>
+  <Style Selector="Button.primary:pointerover">
+    <Setter Property="Opacity" Value="0.9" />
+  </Style>
+
+  <!-- Secondary Button -->
+  <Style Selector="Button.secondary">
+    <Setter Property="Background" Value="{StaticResource BorderDark}" />
+    <Setter Property="Foreground" Value="{StaticResource TextMain}" />
+    <Setter Property="CornerRadius" Value="6" />
+    <Setter Property="Padding" Value="12,6" />
+    <Setter Property="Cursor" Value="Hand" />
+  </Style>
+  <Style Selector="Button.secondary:pointerover">
+    <Setter Property="Background" Value="{StaticResource PrimaryPurple}" />
+  </Style>
+
+</Styles>

@@ -1,0 +1,60 @@
+﻿<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:MutexFlow.Desktop.ViewModels"
+             xmlns:m="clr-namespace:MutexFlow.Desktop.Models"
+             x:Class="MutexFlow.Desktop.Views.LocalAiView"
+             x:DataType="vm:LocalAiViewModel">
+
+  <ScrollViewer VerticalScrollBarVisibility="Auto">
+    <StackPanel Spacing="16" Margin="24">
+
+      <!-- Header -->
+      <TextBlock Text="Local AI Hub" FontSize="22" FontWeight="Bold" Foreground="{StaticResource TextMain}" />
+      <TextBlock Text="Download offline open-weight GGUF models and run them natively on your hardware via llama-server."
+                 FontSize="13"
+                 Foreground="{StaticResource TextMuted}" />
+
+      <!-- Selection & Download -->
+      <Border Background="{StaticResource CardBg}"
+              BorderBrush="{StaticResource BorderDark}"
+              BorderThickness="1"
+              CornerRadius="10"
+              Padding="18"
+              Margin="0,8,0,0">
+        <StackPanel Spacing="14">
+
+          <TextBlock Text="Available Models" FontWeight="SemiBold" FontSize="14" Foreground="{StaticResource TextMain}" />
+
+          <Grid ColumnDefinitions="*,Auto" Margin="0,4,0,0">
+            <ComboBox Grid.Column="0"
+                      ItemsSource="{Binding AvailableModels}"
+                      SelectedItem="{Binding SelectedModel}"
+                      HorizontalAlignment="Stretch"
+                      Margin="0,0,12,0" />
+            <Button Grid.Column="1"
+                    Classes="primary"
+                    Command="{Binding DownloadModelCommand}"
+                    Content="{Binding DownloadButtonText}"
+                    IsEnabled="{Binding !IsDownloading}" />
+          </Grid>
+
+          <!-- Download Progress -->
+          <StackPanel Spacing="6" Margin="0,8,0,0">
+            <ProgressBar Value="{Binding DownloadProgressValue}"
+                         Minimum="0"
+                         Maximum="100"
+                         Height="6"
+                         Foreground="{StaticResource PrimaryPurple}" />
+            <TextBlock Text="{Binding DownloadStatusText}"
+                       FontSize="11"
+                       FontFamily="Consolas, Fira Code, monospace"
+                       Foreground="{StaticResource TextMuted}" />
+          </StackPanel>
+
+        </StackPanel>
+      </Border>
+
+    </StackPanel>
+  </ScrollViewer>
+
+</UserControl>

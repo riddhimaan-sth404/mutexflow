@@ -1,0 +1,112 @@
+﻿<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="clr-namespace:MutexFlow.Desktop.ViewModels"
+        xmlns:views="clr-namespace:MutexFlow.Desktop.Views"
+        x:Class="MutexFlow.Desktop.Views.MainWindow"
+        x:DataType="vm:MainWindowViewModel"
+        Title="MutexFlow Enterprise"
+        Width="1280" Height="800"
+        MinWidth="900" MinHeight="600"
+        Background="{StaticResource BgDark}">
+
+  <Grid ColumnDefinitions="220,*">
+
+    <!-- Left Sidebar -->
+    <Border Grid.Column="0"
+            Background="{StaticResource SidebarBg}"
+            BorderBrush="{StaticResource BorderDark}"
+            BorderThickness="0,0,1,0">
+      <Grid RowDefinitions="Auto,*,Auto" Margin="0,16">
+
+        <!-- Brand Logo -->
+        <StackPanel Grid.Row="0" Margin="16,0,16,20" Spacing="8" Orientation="Horizontal">
+          <Border Width="34" Height="34"
+                  CornerRadius="8"
+                  Background="{StaticResource PrimaryPurple}">
+            <TextBlock Text="M"
+                       Foreground="White"
+                       FontWeight="Bold"
+                       FontSize="18"
+                       HorizontalAlignment="Center"
+                       VerticalAlignment="Center" />
+          </Border>
+          <StackPanel VerticalAlignment="Center">
+            <TextBlock Text="MutexFlow" FontWeight="Bold" FontSize="15" Foreground="{StaticResource TextMain}" />
+            <TextBlock Text="ENTERPRISE" FontWeight="SemiBold" FontSize="9" Foreground="{StaticResource AccentPurple}" />
+          </StackPanel>
+        </StackPanel>
+
+        <!-- Navigation Buttons -->
+        <StackPanel Grid.Row="1" Spacing="4" Margin="8,0">
+          <Button Classes="secondary"
+                  HorizontalAlignment="Stretch"
+                  Command="{Binding NavigateCommand}"
+                  CommandParameter="agent"
+                  Padding="12,10">
+            <StackPanel Orientation="Horizontal" Spacing="10">
+              <TextBlock Text="✦" Foreground="{StaticResource AccentPurple}" />
+              <TextBlock Text="AI Assistant" FontWeight="Medium" />
+            </StackPanel>
+          </Button>
+
+          <Button Classes="secondary"
+                  HorizontalAlignment="Stretch"
+                  Command="{Binding NavigateCommand}"
+                  CommandParameter="integrations"
+                  Padding="12,10">
+            <StackPanel Orientation="Horizontal" Spacing="10">
+              <TextBlock Text="☍" Foreground="{StaticResource AccentPurple}" />
+              <TextBlock Text="Connected Apps" FontWeight="Medium" />
+            </StackPanel>
+          </Button>
+
+          <Button Classes="secondary"
+                  HorizontalAlignment="Stretch"
+                  Command="{Binding NavigateCommand}"
+                  CommandParameter="local-ai"
+                  Padding="12,10">
+            <StackPanel Orientation="Horizontal" Spacing="10">
+              <TextBlock Text="⚙" Foreground="{StaticResource AccentPurple}" />
+              <TextBlock Text="Local AI" FontWeight="Medium" />
+            </StackPanel>
+          </Button>
+        </StackPanel>
+
+        <!-- Footer Settings -->
+        <StackPanel Grid.Row="2" Margin="8,0">
+          <Button Classes="secondary"
+                  HorizontalAlignment="Stretch"
+                  Command="{Binding NavigateCommand}"
+                  CommandParameter="settings"
+                  Padding="12,10">
+            <StackPanel Orientation="Horizontal" Spacing="10">
+              <TextBlock Text="⚙" Foreground="{StaticResource TextMuted}" />
+              <TextBlock Text="Settings" FontWeight="Medium" />
+            </StackPanel>
+          </Button>
+        </StackPanel>
+
+      </Grid>
+    </Border>
+
+    <!-- Main Content Area -->
+    <ContentControl Grid.Column="1" Content="{Binding CurrentView}">
+      <ContentControl.DataTemplates>
+        <DataTemplate DataType="vm:AgentViewModel">
+          <views:AgentView />
+        </DataTemplate>
+        <DataTemplate DataType="vm:IntegrationsViewModel">
+          <views:IntegrationsView />
+        </DataTemplate>
+        <DataTemplate DataType="vm:LocalAiViewModel">
+          <views:LocalAiView />
+        </DataTemplate>
+        <DataTemplate DataType="vm:SettingsViewModel">
+          <views:SettingsView />
+        </DataTemplate>
+      </ContentControl.DataTemplates>
+    </ContentControl>
+
+  </Grid>
+
+</Window>

@@ -1,0 +1,21 @@
+﻿[package]
+name = "backend-rust"
+version = "1.0.0"
+edition = "2021"
+description = "MutexFlow high-performance Rust backend for AI cascade, licensing, and integrations"
+
+[dependencies]
+tokio = { version = "1.38", features = ["full"] }
+axum = { version = "0.7.5", features = ["macros", "json"] }
+tower = { version = "0.4", features = ["util"] }
+tower-http = { version = "0.5", features = ["cors", "trace", "timeout", "fs"] }
+reqwest = { version = "0.12", features = ["json", "stream"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+dotenvy = "0.15"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+url = "2.5"
+urlencoding = "2.1"
+futures-util = "0.3"
+chrono = { version = "0.4", features = ["serde"] }
