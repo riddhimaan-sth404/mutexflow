@@ -278,3 +278,15 @@ A license file was not present in the repository root when this README was prepa
 ---
 
 **MutexFlow** — local inference when you want it, cloud fallback when you need it, and workflows that connect AI output to the tools you use.
+
+
+## Orchestral runtime integration (in progress)
+
+MutexFlow now contains an imported snapshot of the [Orchestral](https://github.com/riddhimaan-sth404/orchestral) runtime under `orchestral-runtime/`. The import includes the Rust Citadel control plane, Python worker, agent guards, recipes, tools, CLI, and tests. MutexFlow's existing Avalonia desktop and application backend remain intact.
+
+The first backend integration is a read-only runtime health endpoint:
+
+- `GET /api/v1/orchestral/health` — checks the configured Citadel `/health` endpoint.
+- `ORCHESTRAL_CORE_URL` — optional base URL, defaulting to `http://127.0.0.1:8088`.
+
+**Important:** this is an integration foundation, not a completed runtime launch flow. The Orchestral core and worker are not automatically started by `run.bat`, and workflow execution is not yet routed through Orchestral. That work follows after build/test baselines and a versioned adapter contract are in place. See [ORCHESTRAL_MERGE_PLAN.md](ORCHESTRAL_MERGE_PLAN.md).
