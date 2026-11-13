@@ -315,4 +315,12 @@ Backend endpoints are grouped under `/api/v1/orchestral`:
 
 The backend keeps the Citadel admin key server-side and binds to loopback by default. The worker accepts only relative workspace paths confined to the configured repository root, runs the passive secret-pattern scanner, masks evidence, and records findings in Citadel. The imported autonomous VigilEngine swarm is not exposed through this adapter. The managed-runtime CI smoke test exercises backend-managed startup, local analysis, approval grant/denial, audit retrieval, and child-process shutdown.
 
-General-purpose agent spawning, arbitrary tool dispatch, event streaming, process restart supervision, and full end-to-end lifecycle/security tests remain outstanding. Existing MutexFlow inference, OAuth, licensing, integrations, and desktop behavior are preserved. See [ORCHESTRAL_MERGE_PLAN.md](ORCHESTRAL_MERGE_PLAN.md) for the current boundary and remaining work.
+Existing MutexFlow inference, OAuth, licensing, integrations, and desktop behavior are preserved. See [ORCHESTRAL_MERGE_PLAN.md](ORCHESTRAL_MERGE_PLAN.md) for the current boundary and remaining work.
+
+### JCode concurrent agent runtime (experimental)
+
+The same backend can optionally manage a pinned [JCode](https://github.com/1jehuang/jcode) Harness instance. Set `JCODE_AUTOSTART=true` and `JCODE_BINARY` to the installed JCode executable in `backend-rust/.env`. JCode is launched with a clean environment, a dedicated `.mutexflow/jcode` state home, and no inherited JCode/provider login files. Its API is connected through the upstream Rust SDK.
+
+The Avalonia Orchestral dashboard exposes session creation, individual turns, cancellation, and concurrent task batches (up to eight sessions/turns). Backend endpoints are grouped under `/api/v1/jcode`: `GET /health`, `GET|POST /sessions`, `POST /sessions/{id}/run`, `POST /sessions/{id}/cancel`, and `POST /swarm` (one task per entry in `tasks`). Each new session starts with an empty built-in tool allowlist. This deliberately prevents JCode from running shell, modifying files, or making network calls outside Citadel's policy and approval path. The current adapter provides concurrent model-agent sessions, not yet the full autonomous JCode swarm with tool-using workers.
+
+JCode requires a provider configured inside its isolated state home before turns can produce model output. The runtime smoke workflow builds the pinned JCode executable and verifies isolated startup, session creation, tool-disable configuration, session listing, and cancellation without requiring provider credentials. Performance claims remain unverified; see [JCODE_INTEGRATION.md](JCODE_INTEGRATION.md) for the security and benchmark gates.
