@@ -42,16 +42,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap_or_else(|| std::path::Path::new("."))
         .to_path_buf();
     let orchestral = Arc::new(OrchestralManager::new(root));
-    let shutdown = shutdown_signal();
-    tokio::pin!(shutdown);
+    let (shutdown_tx, mut shutdown_rx) = tokio::sync::watch::channel(false);
+    tokio::spawn(async move {
+        shutdown_signal().await;
+        let _ = shutdown_tx.send(true);
+    });
+
     tokio::select! {
         result = orchestral.start() => {
             if let Err(error) = result {
                 tracing::error!("[Orchestral] Runtime startup failed: {}", error);
             }
         }
-        _ = &mut shutdown => {
-            info!("Shutdown signal received during Orchestral startup");
+        changed = shutdown_rx.changed() => {
+            if changed.is_ok() {
+                info!("Shutdown signal received during Orchestral startup");
+            }
             orchestral.shutdown().await;
             return Ok(());
         }
@@ -100,8 +106,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
     let server_result = axum::serve(listener, app)
-        .with_graceful_shutdown(async {
-            shutdown.await;
+        .with_graceful_shutdown(async move {
+            let _ = shutdown_rx.wait_for(|received| *received).await;
             info!("Shutdown signal received");
         })
         .await;
