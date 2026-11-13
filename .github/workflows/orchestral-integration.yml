@@ -98,7 +98,7 @@ jobs:
       - name: Start managed runtime and exercise backend APIs
         shell: bash
         run: |
-          set -euo pipefail
+          set -euo pipefail -x
           export ORCHESTRAL_ADMIN_KEY="orch_live_ci_test_key_7f31d4e8a5c2"
           export ORCHESTRAL_JWT_SECRET="ci-only-jwt-secret-not-for-production-000000000000000000000000"
           export ORCHESTRAL_AUTOSTART=true
@@ -110,11 +110,20 @@ jobs:
 
           ./backend-rust/target/debug/backend-rust > "$RUNNER_TEMP/mutexflow-backend.log" 2>&1 &
           BACKEND_PID=$!
-          trap 'kill -INT "$BACKEND_PID" 2>/dev/null || true; wait "$BACKEND_PID" 2>/dev/null || true' EXIT
+          cleanup() {
+            result=$?
+            kill -INT "$BACKEND_PID" 2>/dev/null || true
+            wait "$BACKEND_PID" 2>/dev/null || true
+            if [ "$result" -ne 0 ]; then
+              echo "===== MutexFlow backend log ====="
+              cat "$RUNNER_TEMP/mutexflow-backend.log" || true
+            fi
+          }
+          trap cleanup EXIT
 
           ready=false
           for _ in $(seq 1 240); do
-            if curl --fail --silent http://127.0.0.1:3001/health >/dev/null; then
+            if curl --fail-with-body --silent --show-error http://127.0.0.1:3001/health >/dev/null; then
               ready=true
               break
             fi
@@ -122,12 +131,12 @@ jobs:
           done
           test "$ready" = true
 
-          curl --fail --silent http://127.0.0.1:3001/api/v1/orchestral/status             | python -c 'import json,sys; d=json.load(sys.stdin); assert d["core_healthy"], d; assert d["worker_healthy"], d'
+          curl --fail-with-body --silent --show-error http://127.0.0.1:3001/api/v1/orchestral/status             | python -c 'import json,sys; d=json.load(sys.stdin); assert d["core_healthy"], d; assert d["worker_healthy"], d'
 
-          job_json=$(curl --fail --silent -X POST http://127.0.0.1:3001/api/v1/orchestral/jobs/local-analysis             -H "Content-Type: application/json" -d '{"workspace":"backend-rust"}')
+          job_json=$(curl --fail-with-body --silent --show-error -X POST http://127.0.0.1:3001/api/v1/orchestral/jobs/local-analysis             -H "Content-Type: application/json" -d '{"workspace":"backend-rust"}')
           job_id=$(printf '%s' "$job_json" | python -c 'import json,sys; print(json.load(sys.stdin)["job_id"])')
           for _ in $(seq 1 90); do
-            job_json=$(curl --fail --silent "http://127.0.0.1:3001/api/v1/orchestral/jobs/$job_id")
+            job_json=$(curl --fail-with-body --silent --show-error "http://127.0.0.1:3001/api/v1/orchestral/jobs/$job_id")
             job_status=$(printf '%s' "$job_json" | python -c 'import json,sys; print(json.load(sys.stdin)["status"])')
             if [ "$job_status" = "completed" ]; then break; fi
             if [ "$job_status" = "failed" ] || [ "$job_status" = "cancelled" ]; then
@@ -138,10 +147,10 @@ jobs:
           done
           test "$job_status" = "completed"
 
-          curl --fail --silent http://127.0.0.1:3001/api/v1/orchestral/agents             | python -c 'import json,sys; assert isinstance(json.load(sys.stdin), list)'
-          curl --fail --silent http://127.0.0.1:3001/api/v1/orchestral/findings             | python -c 'import json,sys; assert isinstance(json.load(sys.stdin), list)'
+          curl --fail-with-body --silent --show-error http://127.0.0.1:3001/api/v1/orchestral/agents             | python -c 'import json,sys; assert isinstance(json.load(sys.stdin), list)'
+          curl --fail-with-body --silent --show-error http://127.0.0.1:3001/api/v1/orchestral/findings             | python -c 'import json,sys; assert isinstance(json.load(sys.stdin), list)'
 
-          hitl_json=$(curl --fail --silent -X POST http://127.0.0.1:8088/api/v1/hitl/pending             -H "X-Orchestral-API-Key: $ORCHESTRAL_ADMIN_KEY"             -H "Content-Type: application/json"             -d '{"agent_id":"ci-approval-agent","tool_name":"manual-review","target":"local-workspace","command_preview":"CI approval-gate verification","risk_tier":"active"}')
+          hitl_json=$(curl --fail-with-body --silent --show-error -X POST http://127.0.0.1:8088/api/v1/hitl/pending             -H "X-Orchestral-API-Key: $ORCHESTRAL_ADMIN_KEY"             -H "Content-Type: application/json"             -d '{"agent_id":"ci-approval-agent","tool_name":"manual-review","target":"local-workspace","command_preview":"CI approval-gate verification","risk_tier":"active"}')
           approval_id=$(printf '%s' "$hitl_json" | python -c 'import json,sys; print(json.load(sys.stdin)["id"])')
-          curl --fail --silent "http://127.0.0.1:3001/api/v1/orchestral/approvals/$approval_id/deny" -X POST             | python -c 'import json,sys; assert json.load(sys.stdin)["status"] == "denied"'
-          curl --fail --silent http://127.0.0.1:3001/api/v1/orchestral/audit?limit=20             | python -c 'import json,sys; assert isinstance(json.load(sys.stdin), list)'
+          curl --fail-with-body --silent --show-error "http://127.0.0.1:3001/api/v1/orchestral/approvals/$approval_id/deny" -X POST             | python -c 'import json,sys; assert json.load(sys.stdin)["status"] == "denied"'
+          curl --fail-with-body --silent --show-error http://127.0.0.1:3001/api/v1/orchestral/audit?limit=20             | python -c 'import json,sys; assert isinstance(json.load(sys.stdin), list)'
