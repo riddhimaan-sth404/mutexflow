@@ -94,21 +94,20 @@ impl OrchestralManager {
         } else {
             let binary_name = if cfg!(windows) { "orchestral-core.exe" } else { "orchestral-core" };
             let binary = core_dir.join("target").join("debug").join(binary_name);
-            if !binary.exists() {
-                let build = Command::new("cargo")
-                    .args(["build", "--manifest-path"])
-                    .arg(&core_manifest)
-                    .current_dir(&self.root)
-                    .output();
-                match tokio::time::timeout(Duration::from_secs(180), build).await {
-                    Ok(Ok(output)) if output.status.success() => {}
-                    Ok(Ok(output)) => {
-                        let stderr = String::from_utf8_lossy(&output.stderr);
-                        return Err(format!("build Orchestral Citadel failed: {}", stderr.lines().rev().take(12).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join("\\n")));
-                    }
-                    Ok(Err(error)) => return Err(format!("run Cargo to build Orchestral Citadel: {error}")),
-                    Err(_) => return Err("Orchestral Citadel build timed out after 180 seconds".to_string()),
+            let build = Command::new("cargo")
+                .args(["build", "--manifest-path"])
+                .arg(&core_manifest)
+                .current_dir(&self.root)
+                .output();
+            match tokio::time::timeout(Duration::from_secs(180), build).await {
+                Ok(Ok(output)) if output.status.success() => {}
+                Ok(Ok(output)) => {
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    let tail = stderr.lines().rev().take(12).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join("\n");
+                    return Err(format!("build Orchestral Citadel failed: {tail}"));
                 }
+                Ok(Err(error)) => return Err(format!("run Cargo to build Orchestral Citadel: {error}")),
+                Err(_) => return Err("Orchestral Citadel build timed out after 180 seconds".to_string()),
             }
             binary
         };
