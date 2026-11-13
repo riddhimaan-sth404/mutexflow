@@ -291,7 +291,7 @@ public class AgentClientService : IAgentClientService
     {
         try
         {
-            using var response = await _http.GetAsync($"${BackendUrl}/api/v1/orchestral/${path}", ct);
+            using var response = await _http.GetAsync($"{BackendUrl}/api/v1/orchestral/{path}", ct);
             if (!response.IsSuccessStatusCode) return null;
             return await response.Content.ReadFromJsonAsync<JsonArray>(cancellationToken: ct);
         }
@@ -305,7 +305,7 @@ public class AgentClientService : IAgentClientService
     {
         try
         {
-            using var response = await _http.GetAsync($"${BackendUrl}/api/v1/orchestral/status", ct);
+            using var response = await _http.GetAsync($"{BackendUrl}/api/v1/orchestral/status", ct);
             if (!response.IsSuccessStatusCode) return null;
             return await response.Content.ReadFromJsonAsync<JsonObject>(cancellationToken: ct);
         }
@@ -342,7 +342,7 @@ public class AgentClientService : IAgentClientService
         try
         {
             using var response = await _http.PostAsync(
-                $"${BackendUrl}/api/v1/orchestral/approvals/${Uri.EscapeDataString(id)}/${(approve ? "approve" : "deny")}",
+                $"{BackendUrl}/api/v1/orchestral/approvals/{Uri.EscapeDataString(id)}/{(approve ? "approve" : "deny")}",
                 content: null, ct);
             if (response.IsSuccessStatusCode) return (true, null);
             var error = await response.Content.ReadAsStringAsync(ct);
@@ -372,7 +372,7 @@ public class AgentClientService : IAgentClientService
         try
         {
             using var response = await _http.GetAsync(
-                $ "${BackendUrl}/api/v1/orchestral/jobs/${Uri.EscapeDataString(jobId)}", ct);
+                $"${BackendUrl}/api/v1/orchestral/jobs/{Uri.EscapeDataString(jobId)}", ct);
             if (!response.IsSuccessStatusCode) return null;
             return await response.Content.ReadFromJsonAsync<JsonObject>(cancellationToken: ct);
         }
