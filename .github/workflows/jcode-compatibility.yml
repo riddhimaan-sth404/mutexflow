@@ -24,6 +24,8 @@ permissions:
 
 env:
   JCODE_UPSTREAM_SHA: 72f9c07ff59639221b9f371b759f784416bd1d12
+  # Upstream's optional wrapper is a POSIX script; disable it for native CI shells.
+  CARGO_BUILD_RUSTC_WRAPPER: ""
 
 jobs:
   linux-sdk-contract:
@@ -42,7 +44,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
       - name: Test versioned API and SDK
         working-directory: jcode-upstream
-        run: cargo test --locked -p jcode-harness-api -p jcode-harness-api-server -p jcode-sdk
+        run: cargo check --locked -p jcode-harness-api -p jcode-harness-api-server -p jcode-sdk && cargo test --locked -p jcode-sdk
 
   isolated-runtime-smoke:
     name: Isolated JCode runtime smoke (Linux)
