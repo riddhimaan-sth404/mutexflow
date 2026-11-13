@@ -29,6 +29,7 @@ public interface IAgentClientService
     Task<(bool Ok, string? Error)> ResolveOrchestralApprovalAsync(string id, bool approve, CancellationToken ct = default);
     Task<(bool Ok, string? JobId, string? Error)> StartLocalAnalysisAsync(string workspace, CancellationToken ct = default);
     Task<JsonObject?> GetLocalAnalysisJobAsync(string jobId, CancellationToken ct = default);
+    Task<(bool Ok, string? Error)> CancelLocalAnalysisAsync(string jobId, CancellationToken ct = default);
 }
 
 public class AgentClientService : IAgentClientService
@@ -365,6 +366,20 @@ public class AgentClientService : IAgentClientService
             return (false, null, body?["error"]?.GetValue<string>() ?? $"HTTP {response.StatusCode}");
         }
         catch (Exception ex) { return (false, null, ex.Message); }
+    }
+
+    public async Task<(bool Ok, string? Error)> CancelLocalAnalysisAsync(string jobId, CancellationToken ct = default)
+    {
+        try
+        {
+            using var response = await _http.PostAsync(
+                $"{BackendUrl}/api/v1/orchestral/jobs/{Uri.EscapeDataString(jobId)}/cancel",
+                content: null, ct);
+            if (response.IsSuccessStatusCode) return (true, null);
+            var error = await response.Content.ReadAsStringAsync(ct);
+            return (false, string.IsNullOrWhiteSpace(error) ? $"HTTP {response.StatusCode}" : error);
+        }
+        catch (Exception ex) { return (false, ex.Message); }
     }
 
     public async Task<JsonObject?> GetLocalAnalysisJobAsync(string jobId, CancellationToken ct = default)
