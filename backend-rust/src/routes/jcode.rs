@@ -15,6 +15,9 @@ struct CreateSessionRequest { workspace: String }
 #[derive(Deserialize)]
 struct RunRequest { prompt: String }
 
+#[derive(Deserialize)]
+struct BatchRequest { workspace: String, tasks: Vec<String> }
+
 fn failure(message: String) -> (StatusCode, Json<Value>) {
     (StatusCode::BAD_GATEWAY, Json(json!({ "error": message })))
 }
@@ -23,6 +26,7 @@ pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/health", get(health))
         .route("/sessions", get(sessions).post(create_session))
+        .route("/swarm", post(run_batch))
         .route("/sessions/:id/run", post(run))
         .route("/sessions/:id/cancel", post(cancel))
 }
@@ -41,6 +45,16 @@ async fn create_session(
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<Value>)> {
     state.jcode.create_session(&request.workspace).await
         .map(|value| (StatusCode::CREATED, Json(value)))
+        .map_err(failure)
+}
+
+
+async fn run_batch(
+    State(state): State<Arc<AppState>>,
+    Json(request): Json<BatchRequest>,
+) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<Value>)> {
+    state.jcode.run_batch(&request.workspace, request.tasks).await
+        .map(|value| (StatusCode::ACCEPTED, Json(value)))
         .map_err(failure)
 }
 
