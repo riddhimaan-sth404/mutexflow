@@ -53,12 +53,15 @@ The initial integration keeps Citadel as a loopback-only sidecar to preserve beh
 - The backend starts the processes only when `ORCHESTRAL_ADMIN_KEY` is configured and autostart is enabled.
 - Both services bind to loopback; the admin key is kept in the backend/child-process environment and is not returned to the desktop.
 - Added graceful child-process shutdown when the backend receives Ctrl+C.
+- Added startup readiness reporting; the Windows launcher waits for backend readiness before opening the desktop.
+- Backend binds to loopback by default, restricts browser CORS to loopback origins, and validates sidecar URLs to prevent admin-key forwarding to remote hosts.
 - Citadel data is stored under the ignored `.mutexflow/orchestral/` directory.
 
 ### Phase 3 — Versioned backend API and safe worker adapter (implemented for local analysis; broader agent contract pending)
 - Added backend routes for runtime status, agents, findings, pending approvals, approval/denial, audit events, and local-analysis jobs.
 - Added a worker service that exposes only passive local workspace secret scanning, with path canonicalization and workspace-root confinement.
 - Findings are submitted to Citadel with masked evidence only.
+- Added cooperative cancellation for local workspace scans.
 - The full VigilEngine autonomous worker is preserved but is not exposed through this adapter.
 
 ### Phase 4 — Desktop integration (initial dashboard implemented; CI validation pending)
@@ -75,7 +78,8 @@ The initial integration keeps Citadel as a loopback-only sidecar to preserve beh
 
 ### Phase 6 — Validation and release (in progress)
 - CI covers both Rust projects, Python worker syntax/guard tests, and Avalonia desktop build.
-- Add integration tests for process lifecycle, worker path confinement, findings persistence, approval actions, and shutdown before considering the merge release-ready.
+- Added unit tests for loopback URL validation, job ID validation, workspace traversal/symlink rejection, masked secret evidence, and cooperative cancellation.
+- Process lifecycle, findings persistence, approval actions, and full shutdown integration tests remain outstanding before release.
 - General-purpose autonomous agent spawning, arbitrary tool dispatch, event streaming UI, and cancellation remain out of scope until the API contract and sandbox model are completed.
 
 ### Phase 7 — Compatibility and rollout
