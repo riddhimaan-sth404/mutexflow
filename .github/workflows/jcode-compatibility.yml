@@ -1,0 +1,63 @@
+name: JCode upstream compatibility
+
+on:
+  push:
+    branches:
+      - "integration/**"
+    paths:
+      - ".github/workflows/jcode-compatibility.yml"
+      - "JCODE_INTEGRATION.md"
+      - "backend-rust/**"
+      - "orchestral-runtime/**"
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/jcode-compatibility.yml"
+      - "JCODE_INTEGRATION.md"
+      - "backend-rust/**"
+      - "orchestral-runtime/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  JCODE_UPSTREAM_SHA: 72f9c07ff59639221b9f371b759f784416bd1d12
+
+jobs:
+  linux-sdk-contract:
+    name: JCode SDK and Harness API (Linux)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout MutexFlow
+        uses: actions/checkout@v4
+      - name: Checkout pinned JCode source
+        uses: actions/checkout@v4
+        with:
+          repository: 1jehuang/jcode
+          ref: ${{ env.JCODE_UPSTREAM_SHA }}
+          path: jcode-upstream
+      - name: Install stable Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Test versioned API and SDK
+        working-directory: jcode-upstream
+        run: cargo test --locked -p jcode-harness-api -p jcode-harness-api-server -p jcode-sdk
+
+  windows-sdk-contract:
+    name: JCode SDK and Harness API (Windows)
+    runs-on: windows-latest
+    steps:
+      - name: Checkout MutexFlow
+        uses: actions/checkout@v4
+      - name: Checkout pinned JCode source
+        uses: actions/checkout@v4
+        with:
+          repository: 1jehuang/jcode
+          ref: ${{ env.JCODE_UPSTREAM_SHA }}
+          path: jcode-upstream
+      - name: Install stable Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Test versioned API and SDK
+        working-directory: jcode-upstream
+        run: cargo test --locked -p jcode-harness-api -p jcode-harness-api-server -p jcode-sdk
