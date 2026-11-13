@@ -182,6 +182,7 @@ impl JcodeManager {
         if workspace.trim().is_empty() || workspace.len() > 1024 {
             return Err("workspace must be a non-empty relative path of at most 1024 bytes".into());
         }
+        validate_relative_workspace(workspace)?;
         let root = self.root.clone();
         let requested = workspace.to_string();
         let runtime = self.client()?;
@@ -333,6 +334,31 @@ fn stop_registered_daemon(home: &Path) {
 #[cfg(unix)]
 fn process_exists(pid: i32) -> bool {
     unsafe { libc::kill(pid, 0) == 0 }
+}
+
+
+fn validate_relative_workspace(workspace: &str) -> Result<(), String> {
+    let path = Path::new(workspace);
+    if path.is_absolute() || path.components().any(|component| {
+        matches!(component, std::path::Component::ParentDir | std::path::Component::RootDir | std::path::Component::Prefix(_))
+    }) {
+        return Err("workspace must be a relative path without parent traversal or drive prefixes".into());
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::validate_relative_workspace;
+
+    #[test]
+    fn workspace_paths_must_be_relative_and_confined() {
+        assert!(validate_relative_workspace(".").is_ok());
+        assert!(validate_relative_workspace("src/project").is_ok());
+        assert!(validate_relative_workspace("../outside").is_err());
+        assert!(validate_relative_workspace("/tmp/outside").is_err());
+        assert!(validate_relative_workspace("C:\\outside").is_err());
+    }
 }
 
 #[cfg(unix)]
