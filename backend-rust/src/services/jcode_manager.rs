@@ -228,6 +228,37 @@ impl JcodeManager {
         }).await.map_err(|e| format!("JCode cancellation task failed: {e}"))?
     }
 
+
+    pub async fn run_batch(&self, workspace: &str, prompts: Vec<String>) -> Result<Value, String> {
+        if prompts.is_empty() || prompts.len() > MAX_CONCURRENT_TURNS {
+            return Err(format!("batch must contain between 1 and {MAX_CONCURRENT_TURNS} agent tasks"));
+        }
+        if prompts.iter().any(|prompt| prompt.trim().is_empty() || prompt.len() > MAX_PROMPT_BYTES) {
+            return Err(format!("every task must be non-empty and at most {MAX_PROMPT_BYTES} bytes"));
+        }
+        let mut pending = futures_util::stream::FuturesUnordered::new();
+        let mut session_ids = Vec::with_capacity(prompts.len());
+        for prompt in prompts {
+            let created = self.create_session(workspace).await?;
+            let session_id = created["session_id"].as_str()
+                .ok_or_else(|| "JCode returned a session without an identifier".to_string())?
+                .to_string();
+            session_ids.push(session_id.clone());
+            pending.push(async move {
+                let result = self.run(&session_id, &prompt).await;
+                (session_id, result)
+            });
+        }
+        let mut results = Vec::with_capacity(session_ids.len());
+        while let Some((session_id, result)) = futures_util::StreamExt::next(&mut pending).await {
+            match result {
+                Ok(value) => results.push(value),
+                Err(error) => results.push(json!({ "session_id": session_id, "error": error })),
+            }
+        }
+        Ok(json!({ "agent_count": results.len(), "results": results }))
+    }
+
     pub async fn sessions(&self) -> Result<Value, String> {
         let runtime = self.client()?;
         tokio::task::spawn_blocking(move || {
