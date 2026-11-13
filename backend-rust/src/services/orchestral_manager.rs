@@ -113,13 +113,13 @@ impl OrchestralManager {
         let mut core = core_command.spawn()
             .map_err(|e| format!("start Orchestral Citadel (check Cargo or ORCHESTRAL_CORE_BIN): {e}"))?;
 
-        if !self.wait_for_health(&self.core_url, None, Duration::from_secs(25)).await {
+        if !self.wait_for_health(&self.core_url, None, Duration::from_secs(180)).await {
             let _ = core.kill().await;
             let _ = core.wait().await;
-            return Err("Orchestral Citadel did not become healthy within 25 seconds".to_string());
+            return Err("Orchestral Citadel did not become healthy within 180 seconds".to_string());
         }
 
-        let python = std::env::var("PYTHON").unwrap_or_else(|_| {
+        let python = std::env::var("PYTHON").ok().filter(|v| !v.trim().is_empty()).unwrap_or_else(|| {
             if cfg!(windows) { "python".to_string() } else { "python3".to_string() }
         });
         let worker_dir = self.root.join("orchestral-runtime").join("worker");
