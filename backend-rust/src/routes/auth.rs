@@ -20,6 +20,7 @@ pub struct AppState {
     pub supabase: Option<SupabaseClient>,
     pub port: u16,
     pub orchestral: Arc<crate::services::orchestral_manager::OrchestralManager>,
+    pub jcode: Arc<crate::services::jcode_manager::JcodeManager>,
 }
 
 #[derive(Debug, Deserialize)]
