@@ -31,6 +31,11 @@ class LocalWorkspaceBoundaryTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             service._resolve_workspace("../outside")
 
+    @unittest.skipUnless(os.name == "nt", "Windows drive-qualified path test")
+    def test_rejects_drive_qualified_relative_path(self):
+        with self.assertRaises(ValueError):
+            service._resolve_workspace("C:outside")
+
     def test_rejects_symlink_escape(self):
         outside = Path(self.temp_dir.name).parent / (Path(self.temp_dir.name).name + "-outside")
         outside.mkdir(exist_ok=True)
