@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Threading;
@@ -31,6 +32,7 @@ public interface IAgentClientService
     Task<JsonObject?> GetLocalAnalysisJobAsync(string jobId, CancellationToken ct = default);
     Task<(bool Ok, string? Error)> CancelLocalAnalysisAsync(string jobId, CancellationToken ct = default);
     Task<JsonObject?> GetJcodeStatusAsync(CancellationToken ct = default);
+    Task<List<string>> GetJcodeSessionsAsync(CancellationToken ct = default);
     Task<(bool Ok, string? SessionId, string? Error)> CreateJcodeSessionAsync(string workspace, CancellationToken ct = default);
     Task<(bool Ok, string? Result, string? Error)> RunJcodeSessionAsync(string sessionId, string prompt, CancellationToken ct = default);
     Task<(bool Ok, string? Error)> CancelJcodeSessionAsync(string sessionId, CancellationToken ct = default);
@@ -408,6 +410,22 @@ public class AgentClientService : IAgentClientService
             return await response.Content.ReadFromJsonAsync<JsonObject>(cancellationToken: ct);
         }
         catch { return null; }
+    }
+
+
+    public async Task<List<string>> GetJcodeSessionsAsync(CancellationToken ct = default)
+    {
+        try
+        {
+            using var response = await _http.GetAsync($"{BackendUrl}/api/v1/jcode/sessions", ct);
+            if (!response.IsSuccessStatusCode) return new List<string>();
+            var sessions = await response.Content.ReadFromJsonAsync<JsonArray>(cancellationToken: ct);
+            return sessions?.Select(item => item?["session_id"]?.GetValue<string>())
+                .Where(id => !string.IsNullOrWhiteSpace(id))
+                .Select(id => id!)
+                .ToList() ?? new List<string>();
+        }
+        catch { return new List<string>(); }
     }
 
     public async Task<(bool Ok, string? SessionId, string? Error)> CreateJcodeSessionAsync(
