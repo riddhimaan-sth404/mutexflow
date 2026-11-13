@@ -189,7 +189,6 @@ def main() -> None:
     except KeyboardInterrupt:
         pass
     finally:
-        server.shutdown()
         server.server_close()
         _executor.shutdown(wait=False, cancel_futures=True)
 
