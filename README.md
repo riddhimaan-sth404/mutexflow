@@ -280,6 +280,28 @@ A license file was not present in the repository root when this README was prepa
 **MutexFlow** — local inference when you want it, cloud fallback when you need it, and workflows that connect AI output to the tools you use.
 
 
+
+### Managed runtime setup
+
+The MutexFlow backend can manage the Orchestral Citadel and the restricted local-analysis worker as child processes. Runtime autostart is enabled only when a non-empty `ORCHESTRAL_ADMIN_KEY` is configured (and `ORCHESTRAL_AUTOSTART` is not disabled).
+
+1. Copy `backend-rust/.env.example` to `backend-rust/.env`.
+2. Generate a private random admin key locally (for example, with `openssl rand -hex 32`) and set it as `ORCHESTRAL_ADMIN_KEY`. Do not commit the real `.env` file.
+3. Set a stable, random `ORCHESTRAL_JWT_SECRET` for agent-token continuity across Citadel restarts.
+4. Install Rust/Cargo and Python 3.10 or newer. The restricted worker uses the Python standard library plus the vendored Orchestral worker modules.
+5. Start MutexFlow with `run.bat` on Windows or launch the Rust backend from `backend-rust/` on other platforms.
+
+The backend starts Citadel on loopback port 8088 and the local worker on loopback port 8090. It shuts both down when the backend receives Ctrl+C. Set `ORCHESTRAL_CORE_BIN` to use a prebuilt Citadel executable instead of `cargo run`; set `PYTHON` to override the Python executable.
+
+### Orchestral dashboard and supported workflow
+
+The desktop's **Orchestral** section displays runtime health, registered agents, findings, pending human approvals, and recent audit events. Approval and denial actions are routed through the MutexFlow backend; the Citadel admin key is never sent to the desktop.
+
+The first executable workflow is **passive local workspace analysis**. Enter a relative directory beneath the configured MutexFlow workspace root (the repository root by default). The worker runs only the native secret-pattern scanner, masks any detected values, and records masked findings in Citadel. It rejects absolute paths and traversal outside the workspace root. It does not expose the autonomous network-scanning, terminal, or exploit-capable tools through this desktop workflow.
+
+**Integration boundary:** the imported VigilEngine autonomous swarm is preserved as source but is not launched by MutexFlow. General-purpose agent spawning, arbitrary tool dispatch, streaming event UI, and end-to-end cancellation remain future work; no claim is made that the full standalone Orchestral agent stack is already integrated.
+
+
 ## Orchestral runtime integration (in progress)
 
 MutexFlow now contains an imported snapshot of the [Orchestral](https://github.com/riddhimaan-sth404/orchestral) runtime under `orchestral-runtime/`. The import includes the Rust Citadel control plane, Python worker, agent guards, recipes, tools, CLI, and tests. MutexFlow's existing Avalonia desktop and application backend remain intact.
