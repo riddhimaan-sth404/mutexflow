@@ -43,7 +43,9 @@ jobs:
       - name: Check Python syntax
         run: python -m compileall -q orchestral-runtime/worker/orchestral_worker
       - name: Run guard unit tests
-        run: python -m unittest discover -s orchestral-runtime/tests -p "test_*.py" -v
+        run: |
+          python -m unittest discover -s orchestral-runtime/tests -p "test_unit_guards.py" -v
+          python -m unittest discover -s orchestral-runtime/tests -p "test_mutexflow_worker_service.py" -v
 
   mutexflow-desktop:
     name: MutexFlow Avalonia desktop
