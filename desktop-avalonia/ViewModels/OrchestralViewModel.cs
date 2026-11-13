@@ -47,6 +47,7 @@ public partial class OrchestralViewModel : ViewModelBase
     {
         var statusTask = _client.GetOrchestralStatusAsync();
         var jcodeStatusTask = _client.GetJcodeStatusAsync();
+        var jcodeSessionsTask = _client.GetJcodeSessionsAsync();
         var approvalsTask = _client.GetPendingApprovalsAsync();
         var agentsTask = _client.GetOrchestralAgentsAsync();
         var findingsTask = _client.GetOrchestralFindingsAsync();
@@ -61,6 +62,11 @@ public partial class OrchestralViewModel : ViewModelBase
         JcodeConnected = jcodeStatus?["connected"]?.GetValue<bool>() ?? false;
         JcodeStatusMessage = jcodeStatus?["message"]?.GetValue<string>()
             ?? "JCode status unavailable. Check the MutexFlow backend.";
+        var knownJcodeSessions = await jcodeSessionsTask;
+        JcodeSessions.Clear();
+        foreach (var sessionId in knownJcodeSessions) JcodeSessions.Add(sessionId);
+        if (string.IsNullOrWhiteSpace(JcodeSessionId) && JcodeSessions.Count > 0)
+            JcodeSessionId = JcodeSessions[0];
 
         var approvals = await approvalsTask;
         foreach (var approval in approvals)
