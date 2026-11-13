@@ -339,9 +339,15 @@ fn process_exists(pid: i32) -> bool {
 
 fn validate_relative_workspace(workspace: &str) -> Result<(), String> {
     let path = Path::new(workspace);
-    if path.is_absolute() || path.components().any(|component| {
-        matches!(component, std::path::Component::ParentDir | std::path::Component::RootDir | std::path::Component::Prefix(_))
-    }) {
+    let drive_qualified = workspace.as_bytes().get(1) == Some(&b':');
+    let has_parent_segment = workspace.split(['/', '\\\\']).any(|part| part == "..");
+    if path.is_absolute()
+        || workspace.starts_with(['/', '\\\\'])
+        || drive_qualified
+        || has_parent_segment
+        || path.components().any(|component| {
+            matches!(component, std::path::Component::ParentDir | std::path::Component::RootDir | std::path::Component::Prefix(_))
+        }) {
         return Err("workspace must be a relative path without parent traversal or drive prefixes".into());
     }
     Ok(())
