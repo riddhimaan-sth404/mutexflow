@@ -34,6 +34,7 @@ public interface IAgentClientService
     Task<(bool Ok, string? SessionId, string? Error)> CreateJcodeSessionAsync(string workspace, CancellationToken ct = default);
     Task<(bool Ok, string? Result, string? Error)> RunJcodeSessionAsync(string sessionId, string prompt, CancellationToken ct = default);
     Task<(bool Ok, string? Error)> CancelJcodeSessionAsync(string sessionId, CancellationToken ct = default);
+    Task<(bool Ok, string? Result, string? Error)> RunJcodeBatchAsync(string workspace, List<string> tasks, CancellationToken ct = default);
 }
 
 public class AgentClientService : IAgentClientService
@@ -453,6 +454,22 @@ public class AgentClientService : IAgentClientService
             return (false, string.IsNullOrWhiteSpace(error) ? $"HTTP {response.StatusCode}" : error);
         }
         catch (Exception ex) { return (false, ex.Message); }
+    }
+
+
+    public async Task<(bool Ok, string? Result, string? Error)> RunJcodeBatchAsync(
+        string workspace, List<string> tasks, CancellationToken ct = default)
+    {
+        try
+        {
+            using var response = await _http.PostAsJsonAsync(
+                $"{BackendUrl}/api/v1/jcode/swarm", new { workspace, tasks }, ct);
+            var body = await response.Content.ReadFromJsonAsync<JsonObject>(cancellationToken: ct);
+            if (response.IsSuccessStatusCode)
+                return (true, body?.ToJsonString() ?? string.Empty, null);
+            return (false, null, body?["error"]?.GetValue<string>() ?? $"HTTP {response.StatusCode}");
+        }
+        catch (Exception ex) { return (false, null, ex.Message); }
     }
 
 }
