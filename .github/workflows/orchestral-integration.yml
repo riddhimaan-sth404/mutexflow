@@ -112,8 +112,10 @@ jobs:
           BACKEND_PID=$!
           cleanup() {
             result=$?
-            kill -INT "$BACKEND_PID" 2>/dev/null || true
-            wait "$BACKEND_PID" 2>/dev/null || true
+            if [ -n "${BACKEND_PID:-}" ]; then
+              kill -INT "$BACKEND_PID" 2>/dev/null || true
+              wait "$BACKEND_PID" 2>/dev/null || true
+            fi
             if [ "$result" -ne 0 ]; then
               echo "===== MutexFlow backend log ====="
               cat "$RUNNER_TEMP/mutexflow-backend.log" || true
@@ -163,3 +165,13 @@ jobs:
           printf '%s' "$approve_json" | python -c 'import json,sys; assert json.load(sys.stdin)["status"] == "approved"'
 
           curl --fail-with-body --silent --show-error http://127.0.0.1:3001/api/v1/orchestral/audit?limit=20             | python -c 'import json,sys; assert isinstance(json.load(sys.stdin), list)'
+
+          kill -INT "$BACKEND_PID"
+          wait "$BACKEND_PID"
+          BACKEND_PID=""
+          for port in 8088 8090; do
+            if curl --fail --silent "http://127.0.0.1:$port/health" >/dev/null; then
+              echo "Orchestral child process on port $port survived backend shutdown"
+              exit 1
+            fi
+          done
