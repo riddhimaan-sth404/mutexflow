@@ -1,5 +1,6 @@
 import os
 import re
+import threading
 from typing import Dict, Any, List
 from orchestral_worker.tools.base import BaseSecurityTool
 from orchestral_worker.guard.hitl import RiskTier
@@ -118,8 +119,9 @@ class NativeSecretScannerTool(BaseSecurityTool):
             return ""
         return real
 
-    def _run(self, target: str, content: str = None, directory_path: str = None, **kwargs) -> Dict[str, Any]:
+    def _run(self, target: str, content: str = None, directory_path: str = None, cancel_event: threading.Event = None, **kwargs) -> Dict[str, Any]:
         all_findings = []
+        cancelled = False
         scan_root = directory_path
         denied_paths: List[str] = []
 
@@ -160,12 +162,18 @@ class NativeSecretScannerTool(BaseSecurityTool):
             scan_root = resolved_root
             root_prefix = scan_root + os.sep
             for root, dirs, files in os.walk(scan_root):
+                if cancel_event is not None and cancel_event.is_set():
+                    cancelled = True
+                    break
                 dirs[:] = [
                     d for d in dirs
                     if d not in self.IGNORED_DIRS
                     and not self._is_denied(os.path.join(root, d))
                 ]
                 for f in files:
+                    if cancel_event is not None and cancel_event.is_set():
+                        cancelled = True
+                        break
                     if not f.endswith(self.SCAN_EXTENSIONS):
                         continue
                     fpath = os.path.join(root, f)
@@ -194,6 +202,8 @@ class NativeSecretScannerTool(BaseSecurityTool):
             "findings_count": len(all_findings),
             "findings": all_findings,
         }
+        if cancelled:
+            result["status"] = "cancelled"
         if denied_paths:
             result["skipped_protected_paths"] = len(denied_paths)
         return result
