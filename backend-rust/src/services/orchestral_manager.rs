@@ -42,14 +42,14 @@ impl OrchestralManager {
             && std::env::var("ORCHESTRAL_AUTOSTART")
                 .map(|value| value.eq_ignore_ascii_case("true") || value == "1")
                 .unwrap_or(true);
-        let core_url = std::env::var("ORCHESTRAL_CORE_URL")
-            .unwrap_or_else(|_| "http://127.0.0.1:8088".to_string())
-            .trim_end_matches('/')
-            .to_string();
-        let worker_url = std::env::var("ORCHESTRAL_WORKER_URL")
-            .unwrap_or_else(|_| "http://127.0.0.1:8090".to_string())
-            .trim_end_matches('/')
-            .to_string();
+        let core_url = loopback_base_url(
+            &std::env::var("ORCHESTRAL_CORE_URL").unwrap_or_default(),
+            "http://127.0.0.1:8088",
+        );
+        let worker_url = loopback_base_url(
+            &std::env::var("ORCHESTRAL_WORKER_URL").unwrap_or_default(),
+            "http://127.0.0.1:8090",
+        );
 
         Self {
             processes: Mutex::new(RuntimeProcesses {
@@ -301,4 +301,24 @@ fn port_from_url(url: &str) -> Option<u16> {
 
 fn is_safe_job_id(value: &str) -> bool {
     value.len() == 36 && value.chars().all(|c| c.is_ascii_hexdigit() || c == '-')
+}
+
+fn loopback_base_url(candidate: &str, fallback: &str) -> String {
+    let parsed = match reqwest::Url::parse(candidate) {
+        Ok(url) => url,
+        Err(_) => return fallback.to_string(),
+    };
+    let host = parsed.host_str().unwrap_or_default();
+    let allowed_host = host == "127.0.0.1" || host == "::1";
+    if parsed.scheme() != "http"
+        || !allowed_host
+        || !parsed.username().is_empty()
+        || parsed.password().is_some()
+        || parsed.query().is_some()
+        || parsed.fragment().is_some()
+        || (parsed.path() != "/" && !parsed.path().is_empty())
+    {
+        return fallback.to_string();
+    }
+    parsed.as_str().trim_end_matches('/').to_string()
 }
