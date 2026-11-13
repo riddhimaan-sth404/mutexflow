@@ -304,11 +304,15 @@ The first executable workflow is **passive local workspace analysis**. Enter a r
 
 ## Orchestral runtime integration (in progress)
 
-MutexFlow now contains an imported snapshot of the [Orchestral](https://github.com/riddhimaan-sth404/orchestral) runtime under `orchestral-runtime/`. The import includes the Rust Citadel control plane, Python worker, agent guards, recipes, tools, CLI, and tests. MutexFlow's existing Avalonia desktop and application backend remain intact.
+MutexFlow contains an imported snapshot of [Orchestral](https://github.com/riddhimaan-sth404/orchestral) under `orchestral-runtime/`. The backend manages the Citadel sidecar and a dedicated, restricted local-analysis worker when runtime configuration is present.
 
-The first backend integration is a read-only runtime health endpoint:
+Backend endpoints are grouped under `/api/v1/orchestral`:
 
-- `GET /api/v1/orchestral/health` — checks the configured Citadel `/health` endpoint.
-- `ORCHESTRAL_CORE_URL` — optional base URL, defaulting to `http://127.0.0.1:8088`.
+- `GET /status` and `GET /health` — component readiness and process status.
+- `GET /agents`, `GET /findings`, `GET /approvals`, and `GET /audit` — read Citadel state.
+- `POST /approvals/{id}/approve` and `POST /approvals/{id}/deny` — operator approval decisions.
+- `POST /jobs/local-analysis`, `GET /jobs/{id}`, and `POST /jobs/{id}/cancel` — start, observe, and cooperatively cancel passive local workspace analysis.
 
-**Important:** this is an integration foundation, not a completed runtime launch flow. The Orchestral core and worker are not automatically started by `run.bat`, and workflow execution is not yet routed through Orchestral. That work follows after build/test baselines and a versioned adapter contract are in place. See [ORCHESTRAL_MERGE_PLAN.md](ORCHESTRAL_MERGE_PLAN.md).
+The backend keeps the Citadel admin key server-side and binds to loopback by default. The worker accepts only relative workspace paths confined to the configured repository root, runs the passive secret-pattern scanner, masks evidence, and records findings in Citadel. The imported autonomous VigilEngine swarm is not exposed through this adapter.
+
+General-purpose agent spawning, arbitrary tool dispatch, event streaming, process restart supervision, and full end-to-end lifecycle/security tests remain outstanding. Existing MutexFlow inference, OAuth, licensing, integrations, and desktop behavior are preserved. See [ORCHESTRAL_MERGE_PLAN.md](ORCHESTRAL_MERGE_PLAN.md) for the current boundary and remaining work.
