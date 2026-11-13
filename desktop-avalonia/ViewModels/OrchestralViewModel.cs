@@ -25,6 +25,7 @@ public partial class OrchestralViewModel : ViewModelBase
     [ObservableProperty] private string _jcodePrompt = string.Empty;
     [ObservableProperty] private string _jcodeSessionId = string.Empty;
     [ObservableProperty] private string _jcodeResult = string.Empty;
+    [ObservableProperty] private string _jcodeBatchTasks = string.Empty;
     [ObservableProperty] private bool _jcodeConnected;
     [ObservableProperty] private bool _isJcodeBusy;
 
@@ -197,6 +198,29 @@ public partial class OrchestralViewModel : ViewModelBase
             }
             JcodeResult = result.Result ?? string.Empty;
             JcodeStatusMessage = "JCode turn completed.";
+        }
+        finally { IsJcodeBusy = false; }
+    }
+
+
+    [RelayCommand]
+    public async Task RunJcodeBatchAsync()
+    {
+        if (!JcodeConnected || IsJcodeBusy) return;
+        var tasks = JcodeBatchTasks.Split(new[] { '\\r', '\\n' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (tasks.Length == 0 || tasks.Length > 8)
+        {
+            JcodeStatusMessage = "Enter between 1 and 8 tasks, one per line.";
+            return;
+        }
+        IsJcodeBusy = true;
+        try
+        {
+            JcodeStatusMessage = $"Starting {tasks.Length} concurrent JCode agent sessions...";
+            var result = await _client.RunJcodeBatchAsync(JcodeWorkspace.Trim(), tasks.ToList());
+            JcodeStatusMessage = result.Ok
+                ? $"Concurrent batch completed. Results: {result.Result}"
+                : $"Concurrent batch failed: {result.Error}";
         }
         finally { IsJcodeBusy = false; }
     }
