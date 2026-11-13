@@ -121,6 +121,7 @@ impl OrchestralManager {
         };
 
         let mut core_command = Command::new(core_binary);
+        core_command.kill_on_drop(true);
         core_command.env_clear();
         inherit_safe_runtime_environment(&mut core_command);
         core_command
@@ -152,6 +153,7 @@ impl OrchestralManager {
         });
         let worker_dir = self.root.join("orchestral-runtime").join("worker");
         let mut worker_command = Command::new(python);
+        worker_command.kill_on_drop(true);
         worker_command.env_clear();
         inherit_safe_runtime_environment(&mut worker_command);
         worker_command
@@ -214,8 +216,12 @@ impl OrchestralManager {
         let core_healthy = self.health(&self.core_url).await;
         let worker_healthy = self.health(&self.worker_url).await;
         let managed = core_managed && worker_managed;
-        let message = if !self.enabled {
-            "Runtime is not configured. Set ORCHESTRAL_ADMIN_KEY and ORCHESTRAL_AUTOSTART=true.".to_string()
+        let message = if self.admin_key.is_none() {
+            "Runtime is not configured. Set ORCHESTRAL_ADMIN_KEY to enable it.".to_string()
+        } else if !self.enabled && core_healthy && worker_healthy {
+            "Runtime endpoints are reachable; autostart is disabled and the services are externally managed.".to_string()
+        } else if !self.enabled {
+            "Runtime autostart is disabled. Set ORCHESTRAL_AUTOSTART=true to manage the sidecars.".to_string()
         } else if core_healthy && worker_healthy && managed {
             "Citadel and the restricted local-analysis worker are running.".to_string()
         } else if core_healthy && worker_healthy {
