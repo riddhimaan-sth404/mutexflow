@@ -310,7 +310,7 @@ fn loopback_base_url(candidate: &str, fallback: &str) -> String {
     };
     let host = parsed.host_str().unwrap_or_default();
     let allowed_host = host == "127.0.0.1" || host == "::1";
-    if parsed.scheme() != "http"
+    if parsed.port_or_known_default() == Some(0) || parsed.scheme() != "http"
         || !allowed_host
         || !parsed.username().is_empty()
         || parsed.password().is_some()
@@ -321,4 +321,36 @@ fn loopback_base_url(candidate: &str, fallback: &str) -> String {
         return fallback.to_string();
     }
     parsed.as_str().trim_end_matches('/').to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sidecar_urls_are_loopback_only() {
+        assert_eq!(
+            loopback_base_url("http://127.0.0.1:9088", "http://127.0.0.1:8088"),
+            "http://127.0.0.1:9088"
+        );
+        assert_eq!(
+            loopback_base_url("http://example.com:8088", "http://127.0.0.1:8088"),
+            "http://127.0.0.1:8088"
+        );
+        assert_eq!(
+            loopback_base_url("http://127.0.0.1:0", "http://127.0.0.1:8088"),
+            "http://127.0.0.1:8088"
+        );
+        assert_eq!(
+            loopback_base_url("https://127.0.0.1:8088", "http://127.0.0.1:8088"),
+            "http://127.0.0.1:8088"
+        );
+    }
+
+    #[test]
+    fn worker_job_ids_must_be_uuid_shaped() {
+        assert!(is_safe_job_id("550e8400-e29b-41d4-a716-446655440000"));
+        assert!(!is_safe_job_id("../etc/passwd"));
+        assert!(!is_safe_job_id("not-a-uuid"));
+    }
 }
