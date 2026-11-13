@@ -98,7 +98,7 @@ jobs:
       - name: Start managed runtime and exercise backend APIs
         shell: bash
         run: |
-          set -euo pipefail -x
+          set -euo pipefail
           export ORCHESTRAL_ADMIN_KEY="orch_live_ci_test_key_7f31d4e8a5c2"
           export ORCHESTRAL_JWT_SECRET="ci-only-jwt-secret-not-for-production-000000000000000000000000"
           export ORCHESTRAL_AUTOSTART=true
