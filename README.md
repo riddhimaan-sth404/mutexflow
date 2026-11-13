@@ -295,7 +295,7 @@ The backend binds to loopback by default (`BIND_ADDR=127.0.0.1`), starts Citadel
 
 ### Orchestral dashboard and supported workflow
 
-The desktop's **Orchestral** section displays runtime health, registered agents, findings, pending human approvals, and recent audit events. Approval and denial actions are routed through the MutexFlow backend; the Citadel admin key is never sent to the desktop.
+The desktop's **Orchestral** section displays runtime health, registered agents, findings, pending human approvals, and recent audit events. Local analysis jobs support cooperative cancellation. Approval and denial actions are routed through the MutexFlow backend; the Citadel admin key is never sent to the desktop.
 
 The first executable workflow is **passive local workspace analysis**. Enter a relative directory beneath the configured MutexFlow workspace root (the repository root by default). The worker runs only the native secret-pattern scanner, masks any detected values, and records masked findings in Citadel. It rejects absolute paths and traversal outside the workspace root. It does not expose the autonomous network-scanning, terminal, or exploit-capable tools through this desktop workflow.
 
