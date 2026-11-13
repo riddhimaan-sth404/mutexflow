@@ -357,7 +357,7 @@ public class AgentClientService : IAgentClientService
         try
         {
             using var response = await _http.PostAsJsonAsync(
-                "${BackendUrl}/api/v1/orchestral/jobs/local-analysis",
+                $"{BackendUrl}/api/v1/orchestral/jobs/local-analysis",
                 new { workspace }, ct);
             var body = await response.Content.ReadFromJsonAsync<JsonObject>(cancellationToken: ct);
             if (response.IsSuccessStatusCode)
@@ -372,7 +372,7 @@ public class AgentClientService : IAgentClientService
         try
         {
             using var response = await _http.GetAsync(
-                $"${BackendUrl}/api/v1/orchestral/jobs/{Uri.EscapeDataString(jobId)}", ct);
+                $$"{BackendUrl}/api/v1/orchestral/jobs/{Uri.EscapeDataString(jobId)}", ct);
             if (!response.IsSuccessStatusCode) return null;
             return await response.Content.ReadFromJsonAsync<JsonObject>(cancellationToken: ct);
         }
