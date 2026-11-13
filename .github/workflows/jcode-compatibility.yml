@@ -1,14 +1,6 @@
 name: JCode upstream compatibility
 
 on:
-  push:
-    branches:
-      - "integration/**"
-    paths:
-      - ".github/workflows/jcode-compatibility.yml"
-      - "JCODE_INTEGRATION.md"
-      - "backend-rust/**"
-      - "orchestral-runtime/**"
   pull_request:
     branches:
       - main
@@ -18,6 +10,10 @@ on:
       - "backend-rust/**"
       - "orchestral-runtime/**"
   workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
