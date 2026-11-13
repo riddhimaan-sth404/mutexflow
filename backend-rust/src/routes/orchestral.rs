@@ -83,7 +83,7 @@ async fn approve(
     if !is_uuid(&id) {
         return Err(error_response(StatusCode::BAD_REQUEST, "Invalid approval identifier".to_string()));
     }
-    state.orchestral.core_post_empty(&format!("/api/v1/hitl/:id/approve")).await
+    state.orchestral.core_post_empty(&format!("/api/v1/hitl/{id}/approve")).await
         .map(Json)
         .map_err(|e| error_response(StatusCode::BAD_GATEWAY, e))
 }
@@ -95,7 +95,7 @@ async fn deny(
     if !is_uuid(&id) {
         return Err(error_response(StatusCode::BAD_REQUEST, "Invalid approval identifier".to_string()));
     }
-    state.orchestral.core_post_empty(&format!("/api/v1/hitl/:id/deny")).await
+    state.orchestral.core_post_empty(&format!("/api/v1/hitl/{id}/deny")).await
         .map(Json)
         .map_err(|e| error_response(StatusCode::BAD_GATEWAY, e))
 }
