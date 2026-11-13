@@ -48,30 +48,46 @@ The initial integration keeps Citadel as a loopback-only sidecar to preserve beh
 - Kept imported code in its own package boundaries and did not overwrite MutexFlow source.
 - Added a read-only MutexFlow backend health proxy at `GET /api/v1/orchestral/health`, configurable with `ORCHESTRAL_CORE_URL`.
 
-### Phase 2 — Build and compatibility baseline
+### Phase 2 — Managed runtime lifecycle (implemented; CI validation pending)
+- Added a Tokio process manager for Citadel and a dedicated local-analysis worker.
+- The backend starts the processes only when `ORCHESTRAL_ADMIN_KEY` is configured and autostart is enabled.
+- Both services bind to loopback; the admin key is kept in the backend/child-process environment and is not returned to the desktop.
+- Added graceful child-process shutdown when the backend receives Ctrl+C.
+- Citadel data is stored under the ignored `.mutexflow/orchestral/` directory.
+
+### Phase 3 — Versioned backend API and safe worker adapter (implemented for local analysis; broader agent contract pending)
+- Added backend routes for runtime status, agents, findings, pending approvals, approval/denial, audit events, and local-analysis jobs.
+- Added a worker service that exposes only passive local workspace secret scanning, with path canonicalization and workspace-root confinement.
+- Findings are submitted to Citadel with masked evidence only.
+- The full VigilEngine autonomous worker is preserved but is not exposed through this adapter.
+
+### Phase 4 — Desktop integration (initial dashboard implemented; CI validation pending)
+- Added an Orchestral desktop section for runtime status, local analysis, agents, findings, pending approvals, and audit events.
+- Added explicit approve/deny controls for pending requests.
+- Existing MutexFlow AI inference modes and integration flows remain separate and unchanged.
+
+### Phase 5 — Security and persistence (partial)
+- Runtime services bind to loopback; worker requests require a shared secret header.
+- Workspace scans reject absolute paths and traversal outside the configured root; the existing scanner also excludes sensitive system and credential paths.
+- Citadel uses a local SQLite database under the ignored application data directory.
+- Configure a stable `ORCHESTRAL_JWT_SECRET`; without it Citadel intentionally creates an ephemeral signing secret at startup.
+- Remaining hardening includes OS-native secret storage for the backend's Orchestral admin key, stronger process sandboxing, and explicit audit-chain verification/key-rotation work.
+
+### Phase 6 — Validation and release (in progress)
+- CI covers both Rust projects, Python worker syntax/guard tests, and Avalonia desktop build.
+- Add integration tests for process lifecycle, worker path confinement, findings persistence, approval actions, and shutdown before considering the merge release-ready.
+- General-purpose autonomous agent spawning, arbitrary tool dispatch, event streaming UI, and cancellation remain out of scope until the API contract and sandbox model are completed.
+
+### Phase 7 — Compatibility and rollout
+- Keep standalone Orchestral packaging available while the new MutexFlow adapter matures.
+- Deprecate standalone packaging only after feature parity, migration, and security review.
+
+### Original implementation roadmap (historical notes)
+
 - Run Rust and Python tests from their imported locations.
 - Resolve path assumptions, environment-variable names, and Windows/Linux process-launch differences.
 - Add a reproducible runtime setup script; do not silently skip missing sandbox dependencies.
 
-### Phase 3 — Contract and adapter
-- Define a versioned internal API for starting, cancelling, and observing workflow runs.
-- Add a MutexFlow backend adapter; never expose Orchestral admin credentials to the desktop.
-- Use least-privilege agent tokens and target scopes. High-impact actions must remain approval-gated.
-
-### Phase 4 — Desktop integration
-- Add workflow status, agent activity, approval prompts, findings, and audit history to MutexFlow UI.
-- Keep local/cloud inference configuration in MutexFlow and pass only necessary provider configuration to the runtime.
-
-### Phase 5 — Security and persistence
-- Decide ownership/migration for SQLite state versus Supabase product data.
-- Keep audit records append-only and hash-chained; add verification tests and explicit key-management/rotation design.
-- Harden loopback binding, CORS, authentication, process permissions, secret storage, and sandbox availability.
-
-### Phase 6 — Validation and release
-- Build/test Rust and Python components independently.
-- Add end-to-end tests for workflow execution, scope rejection, approval-required actions, cancellation, event streaming, and audit verification.
-- Test Windows first, then Linux; document unavailable sandbox features rather than weakening isolation.
-- Deprecate standalone Orchestral packaging only after parity and migration tests.
 
 ## Non-goals
 - Do not replace MutexFlow desktop with Orchestral Desktop.
