@@ -95,6 +95,7 @@ impl OrchestralManager {
             let binary_name = if cfg!(windows) { "orchestral-core.exe" } else { "orchestral-core" };
             let binary = core_dir.join("target").join("debug").join(binary_name);
             let mut build_command = Command::new("cargo");
+            build_command.kill_on_drop(true);
             build_command.env_clear();
             inherit_safe_runtime_environment(&mut build_command);
             for name in ["CARGO_HOME", "RUSTUP_HOME", "CARGO_TARGET_DIR", "RUSTUP_TOOLCHAIN", "CARGO_NET_OFFLINE", "CARGO_HTTP_PROXY", "CARGO_HTTP_TIMEOUT", "CARGO_REGISTRIES_CRATES_IO_PROTOCOL", "RUSTFLAGS", "RUSTC_WRAPPER"] {
