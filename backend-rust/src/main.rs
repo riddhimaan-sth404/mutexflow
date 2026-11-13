@@ -10,7 +10,7 @@ use std::env;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
-use tower_http::cors::{Any, CorsLayer};
+use tower_http::cors::{AllowOrigin, Any, CorsLayer};
 use tower_http::trace::TraceLayer;
 use tracing::info;
 
@@ -48,8 +48,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let state = Arc::new(AppState { supabase, port, orchestral: orchestral.clone() });
 
+    // The desktop talks to the backend directly (without browser CORS). For
+    // browser-based local tooling, permit loopback origins only.
     let cors = CorsLayer::new()
-        .allow_origin(Any)
+        .allow_origin(AllowOrigin::predicate(|origin, _| {
+            origin.to_str().map(|value| {
+                value == "http://localhost"
+                    || value == "https://localhost"
+                    || value.starts_with("http://localhost:")
+                    || value.starts_with("https://localhost:")
+                    || value == "http://127.0.0.1"
+                    || value == "https://127.0.0.1"
+                    || value.starts_with("http://127.0.0.1:")
+                    || value.starts_with("https://127.0.0.1:")
+                    || value.starts_with("http://[::1]:")
+                    || value.starts_with("https://[::1]:")
+            }).unwrap_or(false)
+        }))
         .allow_methods(Any)
         .allow_headers(Any);
 
@@ -65,7 +80,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .layer(TraceLayer::new_for_http())
         .with_state(state);
 
-    let addr = SocketAddr::from(([0, 0, 0, 0], port));
+    let bind_host = env::var("BIND_ADDR").unwrap_or_else(|_| "127.0.0.1".to_string());
+    let addr: SocketAddr = format!("{bind_host}:{port}")
+        .parse()
+        .unwrap_or_else(|_| SocketAddr::from(([127, 0, 0, 1], port)));
     info!("[MutexFlow Rust] Server listening on http://{}", addr);
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
