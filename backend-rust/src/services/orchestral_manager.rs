@@ -271,6 +271,24 @@ impl OrchestralManager {
         Ok(body)
     }
 
+    pub async fn cancel_local_analysis_job(&self, job_id: &str) -> Result<Value, String> {
+        if !is_safe_job_id(job_id) {
+            return Err("Invalid job identifier".to_string());
+        }
+        let key = self.admin_key.as_deref().unwrap_or_default();
+        let response = self.client
+            .post(format!("{}/v1/jobs/{}/cancel", self.worker_url, job_id))
+            .header("X-MutexFlow-Worker-Token", key)
+            .send().await
+            .map_err(|e| format!("Local analysis cancellation failed: {e}"))?;
+        let status = response.status();
+        let body = response.json::<Value>().await.unwrap_or_else(|_| json!({}));
+        if !status.is_success() {
+            return Err(body.get("error").and_then(Value::as_str).unwrap_or("Worker rejected cancellation").to_string());
+        }
+        Ok(body)
+    }
+
     pub async fn shutdown(&self) {
         let mut processes = self.processes.lock().await;
         if let Some(mut worker) = processes.worker.take() {
