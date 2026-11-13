@@ -21,6 +21,14 @@ public interface IAgentClientService
     Task<(bool Ok, string? Error)> DispatchDirectIntegrationAsync(IntegrationItem integration, string result, string prompt, WorkflowType workflow, TaskComplexity complexity, CancellationToken ct = default);
     Task<bool> DispatchIntegrationsAsync(string result, string? prompt, string? licenseKey, string? machineId, WorkflowType workflow, TaskComplexity complexity, List<string> targetIntegrations, CancellationToken ct = default);
     Task<List<IntegrationItem>> GetIntegrationStatusesAsync(string machineId, CancellationToken ct = default);
+    Task<JsonObject?> GetOrchestralStatusAsync(CancellationToken ct = default);
+    Task<List<OrchestralApproval>> GetPendingApprovalsAsync(CancellationToken ct = default);
+    Task<List<OrchestralAgent>> GetOrchestralAgentsAsync(CancellationToken ct = default);
+    Task<List<OrchestralFinding>> GetOrchestralFindingsAsync(CancellationToken ct = default);
+    Task<List<OrchestralAuditEntry>> GetOrchestralAuditAsync(CancellationToken ct = default);
+    Task<(bool Ok, string? Error)> ResolveOrchestralApprovalAsync(string id, bool approve, CancellationToken ct = default);
+    Task<(bool Ok, string? JobId, string? Error)> StartLocalAnalysisAsync(string workspace, CancellationToken ct = default);
+    Task<JsonObject?> GetLocalAnalysisJobAsync(string jobId, CancellationToken ct = default);
 }
 
 public class AgentClientService : IAgentClientService
@@ -277,5 +285,97 @@ public class AgentClientService : IAgentClientService
     public Task<List<IntegrationItem>> GetIntegrationStatusesAsync(string machineId, CancellationToken ct = default)
     {
         return Task.FromResult(new List<IntegrationItem>());
+    }
+
+    private async Task<JsonArray?> GetOrchestralArrayAsync(string path, CancellationToken ct)
+    {
+        try
+        {
+            using var response = await _http.GetAsync($"${BackendUrl}/api/v1/orchestral/${path}", ct);
+            if (!response.IsSuccessStatusCode) return null;
+            return await response.Content.ReadFromJsonAsync<JsonArray>(cancellationToken: ct);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    public async Task<JsonObject?> GetOrchestralStatusAsync(CancellationToken ct = default)
+    {
+        try
+        {
+            using var response = await _http.GetAsync($"${BackendUrl}/api/v1/orchestral/status", ct);
+            if (!response.IsSuccessStatusCode) return null;
+            return await response.Content.ReadFromJsonAsync<JsonObject>(cancellationToken: ct);
+        }
+        catch { return null; }
+    }
+
+    public async Task<List<OrchestralApproval>> GetPendingApprovalsAsync(CancellationToken ct = default)
+    {
+        var data = await GetOrchestralArrayAsync("approvals", ct);
+        return data?.Deserialize<List<OrchestralApproval>>() ?? new List<OrchestralApproval>();
+    }
+
+    public async Task<List<OrchestralAgent>> GetOrchestralAgentsAsync(CancellationToken ct = default)
+    {
+        var data = await GetOrchestralArrayAsync("agents", ct);
+        return data?.Deserialize<List<OrchestralAgent>>() ?? new List<OrchestralAgent>();
+    }
+
+    public async Task<List<OrchestralFinding>> GetOrchestralFindingsAsync(CancellationToken ct = default)
+    {
+        var data = await GetOrchestralArrayAsync("findings", ct);
+        return data?.Deserialize<List<OrchestralFinding>>() ?? new List<OrchestralFinding>();
+    }
+
+    public async Task<List<OrchestralAuditEntry>> GetOrchestralAuditAsync(CancellationToken ct = default)
+    {
+        var data = await GetOrchestralArrayAsync("audit?limit=50", ct);
+        return data?.Deserialize<List<OrchestralAuditEntry>>() ?? new List<OrchestralAuditEntry>();
+    }
+
+    public async Task<(bool Ok, string? Error)> ResolveOrchestralApprovalAsync(
+        string id, bool approve, CancellationToken ct = default)
+    {
+        try
+        {
+            using var response = await _http.PostAsync(
+                $"${BackendUrl}/api/v1/orchestral/approvals/${Uri.EscapeDataString(id)}/${(approve ? "approve" : "deny")}",
+                content: null, ct);
+            if (response.IsSuccessStatusCode) return (true, null);
+            var error = await response.Content.ReadAsStringAsync(ct);
+            return (false, string.IsNullOrWhiteSpace(error) ? $"HTTP {response.StatusCode}" : error);
+        }
+        catch (Exception ex) { return (false, ex.Message); }
+    }
+
+    public async Task<(bool Ok, string? JobId, string? Error)> StartLocalAnalysisAsync(
+        string workspace, CancellationToken ct = default)
+    {
+        try
+        {
+            using var response = await _http.PostAsJsonAsync(
+                $ "${BackendUrl}/api/v1/orchestral/jobs/local-analysis",
+                new { workspace }, ct);
+            var body = await response.Content.ReadFromJsonAsync<JsonObject>(cancellationToken: ct);
+            if (response.IsSuccessStatusCode)
+                return (true, body?["job_id"]?.GetValue<string>(), null);
+            return (false, null, body?["error"]?.GetValue<string>() ?? $"HTTP {response.StatusCode}");
+        }
+        catch (Exception ex) { return (false, null, ex.Message); }
+    }
+
+    public async Task<JsonObject?> GetLocalAnalysisJobAsync(string jobId, CancellationToken ct = default)
+    {
+        try
+        {
+            using var response = await _http.GetAsync(
+                $ "${BackendUrl}/api/v1/orchestral/jobs/${Uri.EscapeDataString(jobId)}", ct);
+            if (!response.IsSuccessStatusCode) return null;
+            return await response.Content.ReadFromJsonAsync<JsonObject>(cancellationToken: ct);
+        }
+        catch { return null; }
     }
 }
