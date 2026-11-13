@@ -94,7 +94,15 @@ impl OrchestralManager {
         } else {
             let binary_name = if cfg!(windows) { "orchestral-core.exe" } else { "orchestral-core" };
             let binary = core_dir.join("target").join("debug").join(binary_name);
-            let build = Command::new("cargo")
+            let mut build_command = Command::new("cargo");
+            build_command.env_clear();
+            inherit_safe_runtime_environment(&mut build_command);
+            for name in ["CARGO_HOME", "RUSTUP_HOME", "CARGO_TARGET_DIR", "RUSTUP_TOOLCHAIN", "CARGO_NET_OFFLINE", "CARGO_HTTP_PROXY", "CARGO_HTTP_TIMEOUT", "CARGO_REGISTRIES_CRATES_IO_PROTOCOL", "RUSTFLAGS", "RUSTC_WRAPPER"] {
+                if let Some(value) = std::env::var_os(name) {
+                    build_command.env(name, value);
+                }
+            }
+            let build = build_command
                 .args(["build", "--manifest-path"])
                 .arg(&core_manifest)
                 .current_dir(&self.root)
@@ -113,6 +121,8 @@ impl OrchestralManager {
         };
 
         let mut core_command = Command::new(core_binary);
+        core_command.env_clear();
+        inherit_safe_runtime_environment(&mut core_command);
         core_command
             .current_dir(&self.root)
             .env("PORT", port_from_url(&self.core_url).unwrap_or(8088).to_string())
@@ -142,6 +152,8 @@ impl OrchestralManager {
         });
         let worker_dir = self.root.join("orchestral-runtime").join("worker");
         let mut worker_command = Command::new(python);
+        worker_command.env_clear();
+        inherit_safe_runtime_environment(&mut worker_command);
         worker_command
             .args(["-m", "orchestral_worker.service"])
             .current_dir(&worker_dir)
@@ -389,5 +401,19 @@ mod tests {
         assert!(is_safe_job_id("550e8400-e29b-41d4-a716-446655440000"));
         assert!(!is_safe_job_id("../etc/passwd"));
         assert!(!is_safe_job_id("not-a-uuid"));
+    }
+}
+
+fn inherit_safe_runtime_environment(command: &mut Command) {
+    // Preserve only operating-system/runtime essentials. In particular, do
+    // not inherit MutexFlow cloud-provider, OAuth, or Supabase credentials.
+    for name in [
+        "PATH", "HOME", "USERPROFILE", "TMP", "TEMP", "TMPDIR",
+        "SYSTEMROOT", "WINDIR", "APPDATA", "LOCALAPPDATA",
+        "SSL_CERT_FILE", "SSL_CERT_DIR", "LANG", "LC_ALL", "TZ",
+    ] {
+        if let Some(value) = std::env::var_os(name) {
+            command.env(name, value);
+        }
     }
 }
