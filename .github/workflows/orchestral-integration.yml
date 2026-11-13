@@ -125,7 +125,7 @@ jobs:
           curl --fail --silent http://127.0.0.1:3001/api/v1/orchestral/status             | python -c 'import json,sys; d=json.load(sys.stdin); assert d["core_healthy"], d; assert d["worker_healthy"], d'
 
           job_json=$(curl --fail --silent -X POST http://127.0.0.1:3001/api/v1/orchestral/jobs/local-analysis             -H "Content-Type: application/json" -d '{"workspace":"backend-rust"}')
-          job_id=$(python -c 'import json,sys; print(json.load(sys.stdin)["job_id"])')
+          job_id=$(printf '%s' "$job_json" | python -c 'import json,sys; print(json.load(sys.stdin)["job_id"])')
           for _ in $(seq 1 90); do
             job_json=$(curl --fail --silent "http://127.0.0.1:3001/api/v1/orchestral/jobs/$job_id")
             job_status=$(printf '%s' "$job_json" | python -c 'import json,sys; print(json.load(sys.stdin)["status"])')
