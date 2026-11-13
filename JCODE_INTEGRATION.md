@@ -30,25 +30,27 @@ Do not import JCode's TUI or provider UI into the desktop. Do not create a secon
 
 ## Integration stages
 
-### J0 — Upstream contract baseline (this change)
+### J0 — Upstream contract baseline (complete)
 - Pin the upstream commit used by CI.
 - Compile and test the SDK, stable Harness API, and API bridge on Linux and Windows.
 - Keep this compatibility check separate from MutexFlow's own test suite.
-- Do not claim the runtime is integrated merely because the upstream SDK builds.
 
-### J1 — Managed runtime adapter
-- Add a backend-owned JCode lifecycle manager using the SDK's isolated-instance launch API.
-- Use a dedicated JCode home and disable credential inheritance.
-- Add status, start/stop, session create/close, message, stream, and cancellation APIs behind the existing MutexFlow backend.
-- Ensure child cleanup on normal shutdown, startup failure, and dropped runtime state.
+### J1 — Managed runtime adapter (implementation added; CI validation pending)
+- Pin and depend on the upstream `jcode-sdk` crate at the inspected commit.
+- Launch JCode's API bridge as a backend-owned child process with a clean environment, isolated `JCODE_HOME`, and no inherited provider login files.
+- Connect through the supported Rust SDK with automatic shared-runtime startup disabled.
+- Add backend endpoints for runtime health, session listing/creation, concurrent message turns, and cancellation.
+- Configure each new session with an explicitly empty built-in tool allowlist until tools are routed through Citadel policy mediation.
+- Bound concurrent turns to eight and prompt payloads to 64 KiB.
+- Terminate the managed JCode process when the backend runtime is dropped.
+- The SDK's built-in `launch_instance` helper is intentionally not used because its launch options inherit the parent process environment; MutexFlow instead launches the bridge with an explicit environment allowlist.
 
-### J2 — Orchestral policy mediation
-- Start with no built-in tools enabled.
-- Add only narrow custom tools whose implementations live behind Citadel policy checks.
-- Enforce canonical workspace-root confinement, symlink rejection, size/time limits, and approval gates for any state-changing operation.
-- Keep the existing passive local-analysis worker available as a fallback.
+### J2 — Orchestral policy mediation (not complete)
+- JCode sessions currently have built-in tools disabled. This prevents unmediated shell, filesystem mutation, and network actions.
+- The next implementation step is a custom-tool adapter whose operations are checked and audited by Citadel before execution.
+- Native JCode swarm coordination is not enabled for tool-using workers until this mediation exists.
 
-### J3 — Avalonia presentation
+### J3 — Avalonia presentation (pending)
 - Add JCode runtime status and session controls to the existing Orchestral dashboard.
 - Render streamed output and cancellation state; never expose raw IPC endpoints or secrets.
 - Surface actionable errors when the JCode binary, provider setup, or runtime is unavailable.
@@ -62,4 +64,4 @@ Do not import JCode's TUI or provider UI into the desktop. Do not create a secon
 
 ## Current status
 
-J0 is being added here. J1-J4 are not complete yet. The existing PR remains a draft; this document intentionally does not claim a working JCode runtime, an Avalonia integration, or a measured speedup.
+J0 is implemented. J1 backend integration has been added to the existing PR branch and is awaiting CI validation. J2 policy-mediated tools, J3 Avalonia controls, and J4 measured performance/release gates remain incomplete. The JCode runtime is disabled by default and requires an explicitly configured binary. No speedup claim is made.
