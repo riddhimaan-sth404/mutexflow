@@ -253,7 +253,7 @@ impl OrchestralManager {
         let body = response.json::<Value>().await
             .map_err(|e| format!("Invalid Orchestral Citadel response: {e}"))?;
         if !status.is_success() {
-            return Err(body.get("error").and_then(Value::as_str).unwrap_or("Orchestral request rejected").to_string());
+            return Err(format!("Orchestral POST {} returned HTTP {}: {}", path, status, body.get("error").and_then(Value::as_str).unwrap_or("request rejected")));
         }
         Ok(body)
     }
