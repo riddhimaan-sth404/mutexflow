@@ -1,0 +1,561 @@
+#!/usr/bin/env python3
+import os
+import sys
+import argparse
+import subprocess
+from pathlib import Path
+
+SWARM_ROOT = Path(__file__).resolve().parent.parent
+ORCHESTRAL_CORE_BIN = SWARM_ROOT / "bin" / "orchestral-core" if (SWARM_ROOT / "bin" / "orchestral-core").exists() else SWARM_ROOT / "orchestral-core" / "target" / "debug" / "orchestral-core"
+ORCHESTRAL_WORKER_DIR = SWARM_ROOT / "orchestral-worker"
+
+# Add orchestral-worker to sys.path
+sys.path.insert(0, str(ORCHESTRAL_WORKER_DIR))
+
+from orchestral_worker.client import OrchestralClient
+from orchestral_worker.guard.scope import ScopeGuard
+from orchestral_worker.guard.hitl import HITLInterceptor, RiskTier
+from orchestral_worker.swarm.coordinator import CoordinatedSwarmCoordinator
+from orchestral_worker.swarm.independent import IndependentWorkerPool
+from orchestral_worker.agent_runner import AgentRunner
+from orchestral_worker.supervisor import AgentSupervisor
+from orchestral_worker.tui import OpenCodeStyleTUI
+
+
+def _build_scope(allow: str) -> ScopeGuard:
+    """Parse a comma-separated allowlist into a ScopeGuard.
+
+    ScopeGuard handles bare IPs, CIDRs, wildcard domains, and IPv6 literals.
+    """
+    allowlist = [s.strip() for s in (allow or "").split(",") if s.strip()]
+    return ScopeGuard(allowlist=allowlist)
+
+
+def _build_hitl(args, client=None) -> HITLInterceptor:
+    tier = RiskTier(getattr(args, "auto_approve", "active"))
+    return HITLInterceptor(auto_approve_tier=tier, client=client)
+
+
+def _require_api_key(args) -> None:
+    if not args.api_key:
+        print("[!] Error: an API key is required. Provide --api-key or set ORCHESTRAL_API_KEY.", file=sys.stderr)
+        sys.exit(1)
+
+
+def cmd_core(args):
+    """Start Orchestral Citadel (Daemon & SQLite WAL Persistence Engine)."""
+    _require_api_key(args)
+    if not ORCHESTRAL_CORE_BIN.exists():
+        print(f"[!] Binary {ORCHESTRAL_CORE_BIN} not found. Running 'cargo build'...")
+        subprocess.run(["cargo", "build"], cwd=SWARM_ROOT / "orchestral-core", check=True)
+
+    env = os.environ.copy()
+    env["ORCHESTRAL_ADMIN_KEY"] = args.api_key
+    if args.port:
+        env["PORT"] = str(args.port)
+    if args.db_path:
+        env["ORCHESTRAL_DB_PATH"] = args.db_path
+
+    print(f"[CITADEL] Starting Orchestral Citadel on port {args.port} (SQLite WAL Engine)...")
+    subprocess.run([str(ORCHESTRAL_CORE_BIN)], env=env)
+
+
+def cmd_monitor(args):
+    """Launch OrchestralLens (High-Density Real-Time Terminal Observatory)."""
+    tui = OpenCodeStyleTUI(core_url=args.core_url, api_key=args.api_key)
+    if args.snapshot:
+        tui.console.print(tui.render_snapshot())
+    else:
+        print(f"[MONITOR] Connecting OrchestralLens to {args.core_url} with live SSE stream...")
+        tui.run_live(duration_seconds=args.duration)
+
+
+def cmd_run(args):
+    """Mobilize Coordinated Swarm or Independent Worker Pool via VigilEngine."""
+    _require_api_key(args)
+    client = OrchestralClient(base_url=args.core_url, api_key=args.api_key)
+    scope_guard = _build_scope(args.allow)
+    hitl = _build_hitl(args, client=client)
+
+    if args.mode == "coordinated":
+        coordinator = CoordinatedSwarmCoordinator(
+            client=client,
+            scope_guard=scope_guard,
+            hitl_interceptor=hitl,
+        )
+        report = coordinator.run_engagement(
+            args.target,
+            research_objective=args.objective,
+        )
+        from rich.console import Console
+        from rich.markdown import Markdown
+        console = Console()
+        console.print(Markdown(report.get("report", str(report))))
+
+    elif args.mode == "independent":
+        targets = [t.strip() for t in args.target.split(",") if t.strip()]
+        role_map = {
+            "port_scan": "recon",
+            "secret_scan": "sast",
+            "http_probe": "dast",
+        }
+        pool = IndependentWorkerPool(
+            client=client,
+            scope_guard=scope_guard,
+            hitl=hitl,
+        )
+        results = pool.run_batch_tasks(
+            targets=targets,
+            task_type=role_map.get(args.task, args.task),
+            max_concurrency=args.concurrency,
+        )
+        from rich.console import Console
+        console = Console()
+        console.print_json(data=results)
+
+
+def cmd_agent(args):
+    """Run an individual autonomous ReAct agent."""
+    _require_api_key(args)
+    client = OrchestralClient(base_url=args.core_url, api_key=args.api_key)
+    scope_guard = _build_scope(args.allow)
+    hitl = _build_hitl(args, client=client)
+
+    runner = AgentRunner(
+        agent_id=args.id,
+        role=args.role,
+        target=args.target,
+        scope=scope_guard.allowlist,
+        client=client,
+        max_iterations=args.max_turns,
+        hitl_interceptor=hitl,
+    )
+    result = runner.run()
+    from rich.console import Console
+    console = Console()
+    console.print_json(data=result)
+
+
+def cmd_supervisor(args):
+    """Launch multi-agent ArchonSupervisor."""
+    _require_api_key(args)
+    client = OrchestralClient(base_url=args.core_url, api_key=args.api_key)
+    supervisor = AgentSupervisor(
+        client=client,
+        max_workers=args.workers,
+        token_budget_per_agent=args.budget,
+        timeout_seconds=args.timeout,
+        auto_approve_tier=RiskTier(args.auto_approve),
+    )
+
+    scope = _build_scope(args.allow).allowlist
+    targets = [t.strip() for t in args.target.split(",") if t.strip()]
+
+    for i, target in enumerate(targets):
+        for role in ["sentinel_recon", "cerberus_dast"]:
+            supervisor.spawn_agent(
+                agent_id=f"{role}-{i+1:02d}",
+                role=role,
+                target=target,
+                scope=scope,
+            )
+
+    print(f"[SUPERVISOR] ArchonSupervisor active with {len(supervisor.active_agents)} operatives. Enforcing token & timeout bounds...")
+    results = supervisor.wait_all(timeout=args.timeout + 30)
+    supervisor.shutdown()
+    from rich.console import Console
+    console = Console()
+    console.print_json(data=results)
+
+
+def cmd_hitl(args):
+    """Manage IronGate (Human-in-the-Loop Zero-Trust Approval Gateway)."""
+    client = OrchestralClient(base_url=args.core_url, api_key=args.api_key)
+    from rich.console import Console
+    from rich.table import Table
+    console = Console()
+
+    target_id = args.id or args.req_id
+
+    if args.action == "list":
+        pending = client.list_pending_hitl()
+        table = Table(title="[GATE] IronGate: Pending Human-in-the-Loop Authorization Requests", border_style="yellow")
+        table.add_column("Request ID", style="bold cyan")
+        table.add_column("Operative ID", style="white")
+        table.add_column("Tool", style="yellow")
+        table.add_column("Target", style="green")
+        table.add_column("Command Preview", style="bold red")
+
+        for r in pending:
+            table.add_row(
+                str(r.get("id")),
+                r.get("agent_id", "-"),
+                r.get("tool_name", "-"),
+                r.get("target", "-"),
+                r.get("command_preview", "-"),
+            )
+        console.print(table)
+
+    elif args.action == "approve":
+        if not target_id:
+            console.print("[red]Error: Request ID is required (e.g., orchestral gate approve <id>)[/red]")
+            sys.exit(1)
+        res = client.approve_hitl(target_id)
+        console.print(f"[green][APPROVED] IronGate: Request {target_id} APPROVED by Operator:[/green] {res}")
+
+    elif args.action == "deny":
+        if not target_id:
+            console.print("[red]Error: Request ID is required (e.g., orchestral gate deny <id>)[/red]")
+            sys.exit(1)
+        res = client.deny_hitl(target_id)
+        console.print(f"[red][DENIED] IronGate: Request {target_id} DENIED by Operator:[/red] {res}")
+
+
+def cmd_blackboard(args):
+    """Inspect SynapseNexus (Persistent Collaborative Swarm Intelligence Fabric)."""
+    client = OrchestralClient(base_url=args.core_url, api_key=args.api_key)
+    summary = client.get_blackboard_summary()
+    from rich.console import Console
+    console = Console()
+    console.print("[bold cyan][NEXUS] SynapseNexus: Live Collaborative Swarm Intelligence[/bold cyan]")
+    console.print_json(data=summary)
+
+
+def cmd_audit(args):
+    """Query OrchestralChronicle (Cryptographic Append-Only SQLite Engagement Ledger)."""
+    client = OrchestralClient(base_url=args.core_url, api_key=args.api_key)
+    logs = client.list_audit_logs(limit=args.limit)
+    from rich.console import Console
+    from rich.table import Table
+    console = Console()
+
+    table = Table(title="[CHRONICLE] OrchestralChronicle: Immutable SQLite Audit Ledger", border_style="blue")
+    table.add_column("ID", width=6)
+    table.add_column("Timestamp", style="dim")
+    table.add_column("Actor", style="cyan")
+    table.add_column("Action", style="bold yellow")
+    table.add_column("Details", style="white")
+
+    for l in logs:
+        table.add_row(
+            str(l.get("id")),
+            l.get("timestamp", "-")[:19],
+            l.get("actor", "-"),
+            l.get("action", "-"),
+            l.get("details", "-"),
+        )
+    console.print(table)
+
+
+def cmd_findings(args):
+    """Query Intelligence / Security Findings."""
+    client = OrchestralClient(base_url=args.core_url, api_key=args.api_key)
+    findings = client.list_findings()
+    from rich.console import Console
+    from rich.table import Table
+
+    console = Console()
+    table = Table(title="[INTEL] Orchestral Security Intelligence (SQLite WAL Backed)", border_style="red")
+    table.add_column("Severity", width=10)
+    table.add_column("Target", style="cyan")
+    table.add_column("Title")
+    table.add_column("CVSS", width=6)
+    table.add_column("CVE", width=16)
+    table.add_column("Status", style="green")
+
+    for f in findings:
+        table.add_row(
+            f.get("severity", "INFO"),
+            f.get("target", "-"),
+            f.get("title", "-"),
+            str(f.get("cvss") or "-"),
+            f.get("cve") or "-",
+            f.get("status", "discovered"),
+        )
+
+    console.print(table)
+
+
+def cmd_key(args):
+    """Generate or manage Scoped API Keys."""
+    client = OrchestralClient(base_url=args.core_url, api_key=args.api_key)
+    res = client._request(
+        "/api/v1/auth/keys",
+        method="POST",
+        payload={"name": args.name, "scopes": args.scopes.split(",")},
+    )
+    print("\n=======================================================")
+    print("[KEY] Orchestral Citadel: Scoped API Key Created (Persisted in SQLite)")
+    print(f"  Name:   {res.get('name')}")
+    print(f"  Key:    {res.get('key')}")
+    print(f"  Scopes: {res.get('scopes')}")
+    print("=======================================================\n")
+
+
+def cmd_kali(args):
+    """Dispatch terminal tool into Tartarus (Hardened Agent-Exclusive Kali Sandbox)."""
+    from orchestral_worker.tools.kali_tool import KaliTerminalTool
+    from rich.console import Console
+
+    guard = _build_scope(args.allow)
+    hitl = HITLInterceptor(auto_approve_tier=RiskTier(args.auto_approve))
+    tool = KaliTerminalTool(scope_guard=guard, hitl_interceptor=hitl)
+
+    console = Console()
+    console.print(f"[bold cyan][TARTARUS] Tartarus Sandbox: Executing Hardened Container Payload:[/bold cyan] {args.cmd}")
+    res = tool.execute(
+        agent_id=args.agent_id,
+        target=args.target,
+        command=args.cmd,
+    )
+    console.print(res)
+    tool.stop_all()
+
+
+def cmd_profiles(args):
+    """Inspect AI Agent Operative Personas & System Prompts."""
+    from orchestral_worker.profiles import list_profiles, get_profile
+    from rich.console import Console
+    from rich.table import Table
+    from rich.markdown import Markdown
+
+    console = Console()
+    if args.show:
+        profile = get_profile(args.show)
+        if not profile:
+            console.print(f"[bold red]Error:[/bold red] Operative Persona '{args.show}' not found.")
+            sys.exit(1)
+        console.print(f"[bold cyan][PERSONA] Operative Persona: {profile.name} ({profile.role})[/bold cyan]\n")
+        console.print(Markdown(profile.get_full_prompt(target="api.internal.local", scope=["*.internal.local"])))
+    else:
+        profiles = list_profiles()
+        table = Table(title="[ORCHESTRAL] Operative Personas Catalog", border_style="magenta")
+        table.add_column("Persona Name", style="bold cyan")
+        table.add_column("Codename ID", style="dim")
+        table.add_column("Tactical Role", style="bold white")
+        table.add_column("Swarm Mode", style="yellow")
+        table.add_column("Risk Threshold", style="red")
+
+        for p in profiles:
+            table.add_row(p.name, p.id, p.role, p.mode.upper(), p.default_risk_tier.upper())
+
+        console.print(table)
+        console.print("\n[dim]Tip: Run './bin/orchestral personas --show <name>' to view complete compiled system prompt.[/dim]")
+
+
+def cmd_tools(args):
+    """Inspect Orchestral Security Capabilities provided to agents."""
+    from orchestral_worker.tools.registry import ToolRegistry
+    from rich.console import Console
+    from rich.table import Table
+
+    registry = ToolRegistry()
+    tools = registry.list_tools()
+
+    console = Console()
+    table = Table(title="[ARSENAL] Orchestral Security Capabilities Catalog", border_style="cyan")
+    table.add_column("Capability Name", style="bold cyan")
+    table.add_column("Risk Tier", style="bold yellow")
+    table.add_column("Description")
+
+    for t in tools:
+        table.add_row(t["name"], t["risk_tier"].upper(), t["description"])
+
+    console.print(table)
+
+
+def cmd_mcp(args):
+    """Launch Orchestral Model Context Protocol (MCP) JSON-RPC stdio server."""
+    from orchestral_worker.mcp.server import main as mcp_main
+    mcp_main()
+
+
+def cmd_recipes(args):
+    """Inspect Orchestral operative workflow recipes."""
+    recipes_dir = SWARM_ROOT / "recipes"
+    from rich.console import Console
+    from rich.table import Table
+    console = Console()
+
+    if args.show:
+        recipe_path = recipes_dir / args.show / "recipe.yaml"
+        if not recipe_path.exists():
+            console.print(f"[bold red]Error:[/bold red] Recipe '{args.show}' not found.")
+            sys.exit(1)
+        console.print(f"[bold cyan][RECIPE] Operative Recipe: {args.show}[/bold cyan]\n")
+        console.print(recipe_path.read_text(encoding="utf-8"))
+    else:
+        table = Table(title="[RECIPE] Orchestral Operative Recipes Catalog", border_style="green")
+        table.add_column("Recipe Name", style="bold cyan")
+        table.add_column("Title", style="white")
+        table.add_column("Description", style="dim")
+
+        for r_dir in sorted(recipes_dir.glob("*/")):
+            r_file = r_dir / "recipe.yaml"
+            if r_file.exists():
+                text = r_file.read_text(encoding="utf-8")
+                title = [line.split(":", 1)[1].strip().strip('"') for line in text.splitlines() if line.startswith("title:")][0] if "title:" in text else r_dir.name
+                desc = [line.split(":", 1)[1].strip().strip('"') for line in text.splitlines() if line.startswith("description:")][0] if "description:" in text else "-"
+                table.add_row(r_dir.name, title, desc[:60] + "...")
+
+        console.print(table)
+        console.print("\n[dim]Tip: Run './bin/orchestral recipes --show <name>' to view the YAML recipe.[/dim]")
+
+
+def cmd_gui(args):
+    """Launch Orchestral Native Avalonia C# Desktop GUI."""
+    desktop_bin = SWARM_ROOT / "bin" / "orchestral-desktop" / "Orchestral.Desktop"
+    dotnet_bin = Path.home() / ".dotnet" / "dotnet"
+    desktop_dll = SWARM_ROOT / "bin" / "orchestral-desktop" / "Orchestral.Desktop.dll"
+
+    print("[GUI] Launching Orchestral Desktop...")
+
+    env = os.environ.copy()
+    env["PATH"] = f"{Path.home() / '.dotnet'}:{env.get('PATH', '')}"
+
+    if desktop_bin.exists() and os.access(desktop_bin, os.X_OK):
+        subprocess.run([str(desktop_bin)], cwd=SWARM_ROOT / "bin" / "orchestral-desktop", env=env)
+    elif dotnet_bin.exists() and desktop_dll.exists():
+        subprocess.run([str(dotnet_bin), str(desktop_dll)], cwd=SWARM_ROOT / "bin" / "orchestral-desktop", env=env)
+    else:
+        print(f"[ERROR] Avalonia binary not found at {desktop_bin}")
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        prog="orchestral",
+        description="""
+  ___           _               _             _ 
+ / _ \\ _ __ ___| |__   ___  ___| |_ _ __ __ _| |
+| | | | '__/ __| '_ \\ / _ \\/ __| __| '__/ _` | |
+| |_| | | | (__| | | |  __/\\__ \\ |_| | | (_| | |
+ \\___/|_|  \\___|_| |_|\\___||___/\\__|_|  \\__,_|_|
+  Autonomous Security Swarm Operations Citadel
+  Citadel: Orchestral Citadel | Runtime: VigilEngine | Monitor: OrchestralLens
+  Extensions: Native Model Context Protocol (MCP) + Operative Recipes
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument(
+        "--core-url",
+        default=os.environ.get("ORCHESTRAL_CORE_URL", "http://127.0.0.1:8088"),
+        help="Orchestral Citadel API base URL (default: http://127.0.0.1:8088)",
+    )
+    parser.add_argument(
+        "--api-key",
+        default=os.environ.get("ORCHESTRAL_API_KEY", ""),
+        help="Orchestral Citadel API Key or Bearer Token (or set ORCHESTRAL_API_KEY)",
+    )
+
+    subparsers = parser.add_subparsers(dest="subcommand", required=True)
+
+    # Orchestral Citadel (core / bastion)
+    p_core = subparsers.add_parser("bastion", aliases=["core", "citadel"], help="Launch Orchestral Citadel daemon (Rust + SQLite WAL)")
+    p_core.add_argument("--port", type=int, default=8088, help="Citadel bind port (default: 8088)")
+    p_core.add_argument("--db-path", help="Custom SQLite DB path (default: ~/.orchestral/orchestral.db)")
+    p_core.set_defaults(func=cmd_core)
+
+    # OrchestralLens Monitor
+    p_mon = subparsers.add_parser("lens", aliases=["monitor"], help="Launch OrchestralLens real-time SSE Terminal Observatory")
+    p_mon.add_argument("--duration", type=int, default=300, help="Live stream duration in seconds")
+    p_mon.add_argument("--snapshot", action="store_true", help="Print static terminal snapshot without live loop")
+    p_mon.set_defaults(func=cmd_monitor)
+
+    # Mobilize Swarm
+    p_run = subparsers.add_parser("mobilize", aliases=["run"], help="Mobilize autonomous multi-agent swarm engagement")
+    p_run.add_argument("--mode", choices=["coordinated", "independent"], default="coordinated", help="Swarm topology mode")
+    p_run.add_argument("--target", required=True, help="Target host, IP, or list")
+    p_run.add_argument("--allow", default="*.internal.local,127.0.0.1/32,10.0.0.0/8", help="Authorized ScopeGuard allowlist")
+    p_run.add_argument("--task", choices=["port_scan", "secret_scan", "http_probe"], default="port_scan", help="Task for independent mode")
+    p_run.add_argument("--concurrency", type=int, default=4, help="Worker pool concurrency")
+    p_run.add_argument("--objective", default="Assess the target's security posture", help="Engagement research objective")
+    p_run.add_argument("--auto-approve", choices=["passive", "active", "high_impact"], default="active", help="HITL auto-approval threshold (high-impact actions still require approval unless set to high_impact)")
+    p_run.set_defaults(func=cmd_run)
+
+    # Single Agent
+    p_ag = subparsers.add_parser("agent", help="Dispatch an individual autonomous ReAct operative")
+    p_ag.add_argument("--id", default="agent-single-01", help="Agent identifier")
+    p_ag.add_argument("--role", default="sentinel_recon", help="Agent operative role")
+    p_ag.add_argument("--target", required=True, help="Target host or IP")
+    p_ag.add_argument("--allow", default="*.internal.local,127.0.0.1/32,10.0.0.0/8", help="Scope allowlist")
+    p_ag.add_argument("--max-turns", type=int, default=8, help="Maximum reasoning turns")
+    p_ag.add_argument("--auto-approve", choices=["passive", "active", "high_impact"], default="active", help="HITL auto-approval threshold")
+    p_ag.set_defaults(func=cmd_agent)
+
+    # ArchonSupervisor
+    p_sup = subparsers.add_parser("archon", aliases=["supervisor"], help="Launch ArchonSupervisor multi-agent lifecycle manager")
+    p_sup.add_argument("--target", required=True, help="Target host(s)")
+    p_sup.add_argument("--allow", default="*.internal.local,127.0.0.1/32,10.0.0.0/8", help="Scope allowlist")
+    p_sup.add_argument("--workers", type=int, default=6, help="Thread pool worker count")
+    p_sup.add_argument("--budget", type=int, default=50000, help="Per-agent token budget limit")
+    p_sup.add_argument("--timeout", type=int, default=300, help="Per-agent timeout in seconds")
+    p_sup.add_argument("--auto-approve", choices=["passive", "active", "high_impact"], default="active", help="HITL auto-approval threshold")
+    p_sup.set_defaults(func=cmd_supervisor)
+
+    # IronGate HITL
+    p_hitl = subparsers.add_parser("gate", aliases=["hitl"], help="Manage IronGate Zero-Trust Human-In-The-Loop decisions")
+    p_hitl.add_argument("action", choices=["list", "approve", "deny"], help="Action: list, approve, deny")
+    p_hitl.add_argument("req_id", nargs="?", help="Request ID to approve or deny (positional)")
+    p_hitl.add_argument("--id", dest="id", help="Request ID to approve or deny (optional flag)")
+    p_hitl.set_defaults(func=cmd_hitl)
+
+    # SynapseNexus
+    p_bb = subparsers.add_parser("nexus", aliases=["blackboard"], help="Inspect SynapseNexus collaborative intelligence state")
+    p_bb.set_defaults(func=cmd_blackboard)
+
+    # OrchestralChronicle Audit
+    p_aud = subparsers.add_parser("chronicle", aliases=["audit"], help="Query OrchestralChronicle append-only SQLite engagement ledger")
+    p_aud.add_argument("--limit", type=int, default=50, help="Number of records to retrieve")
+    p_aud.set_defaults(func=cmd_audit)
+
+    # Intelligence Findings
+    p_findings = subparsers.add_parser("intel", aliases=["findings"], help="Query verified vulnerability intelligence")
+    p_findings.set_defaults(func=cmd_findings)
+
+    # API Keys
+    p_key = subparsers.add_parser("key", help="Provision cryptographically scoped API keys")
+    p_key.add_argument("--name", default="operative-default", help="Descriptive name for key")
+    p_key.add_argument(
+        "--scopes",
+        default="read:status,read:findings,write:findings,write:agent_state,read:events,write:blackboard,read:blackboard,request:hitl,execute:kali",
+        help="Comma-separated scope list",
+    )
+    p_key.set_defaults(func=cmd_key)
+
+    # Arsenal Tools
+    p_tools = subparsers.add_parser("arsenal", aliases=["tools"], help="Inspect Orchestral security capabilities")
+    p_tools.set_defaults(func=cmd_tools)
+
+    # Personas
+    p_prof = subparsers.add_parser("personas", aliases=["profiles"], help="Inspect AI agent operative personas & compiled prompts")
+    p_prof.add_argument("--show", help="Persona name to inspect compiled prompt for")
+    p_prof.set_defaults(func=cmd_profiles)
+
+    # Tartarus Sandbox
+    p_kali = subparsers.add_parser("tartarus", aliases=["kali"], help="Execute inside Tartarus hardened Kali container")
+    p_kali.add_argument("--cmd", required=True, help="Command to execute (e.g. 'nmap -sV -p 80,443 target')")
+    p_kali.add_argument("--target", required=True, help="Target host or IP for PerimeterLock verification")
+    p_kali.add_argument("--agent-id", default="agent-kali", help="Agent identifier")
+    p_kali.add_argument("--allow", default="*.internal.local,127.0.0.1/32,10.0.0.0/8", help="Scope allowlist")
+    p_kali.add_argument("--auto-approve", choices=["passive", "active", "high_impact"], default="active", help="HITL auto-approval threshold")
+    p_kali.set_defaults(func=cmd_kali)
+
+    # Model Context Protocol (MCP) Server
+    p_mcp = subparsers.add_parser("mcp", help="Start Orchestral Model Context Protocol (MCP) stdio server")
+    p_mcp.set_defaults(func=cmd_mcp)
+
+    # Recipes
+    p_rec = subparsers.add_parser("recipes", help="Inspect Orchestral operative workflow recipes")
+    p_rec.add_argument("--show", help="Recipe name to show YAML definition for")
+    p_rec.set_defaults(func=cmd_recipes)
+
+    # Desktop GUI
+    p_gui = subparsers.add_parser("gui", help="Launch Orchestral Desktop GUI with Citadel dashboard")
+    p_gui.set_defaults(func=cmd_gui)
+
+    args = parser.parse_args()
+    args.func(args)
+
+
+if __name__ == "__main__":
+    main()
