@@ -69,6 +69,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .allow_headers(Any);
 
     let app = Router::new()
+        .route("/health", get(|| async { axum::Json(serde_json::json!({ "status": "ok", "service": "mutexflow-backend" })) }))
         .route("/api/v1/auth/verify-license", post(routes::auth::verify_license))
         .route("/api/v1/auth/:provider/connect", get(routes::auth::oauth_connect))
         .route("/api/v1/auth/:provider/callback", get(routes::auth::oauth_callback))
