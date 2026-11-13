@@ -47,6 +47,7 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/audit", get(audit))
         .route("/jobs/local-analysis", post(start_local_analysis))
         .route("/jobs/{id}", get(get_local_analysis_job))
+        .route("/jobs/{id}/cancel", post(cancel_local_analysis_job))
 }
 
 async fn health(State(state): State<Arc<AppState>>) -> Json<crate::services::orchestral_manager::OrchestralRuntimeStatus> {
@@ -118,6 +119,18 @@ async fn start_local_analysis(
     }
     state.orchestral.start_local_analysis(payload.workspace.trim()).await
         .map(|value| (StatusCode::ACCEPTED, Json(value)))
+        .map_err(|e| error_response(StatusCode::BAD_GATEWAY, e))
+}
+
+async fn cancel_local_analysis_job(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    if !is_uuid(&id) {
+        return Err(error_response(StatusCode::BAD_REQUEST, "Invalid job identifier".to_string()));
+    }
+    state.orchestral.cancel_local_analysis_job(&id).await
+        .map(Json)
         .map_err(|e| error_response(StatusCode::BAD_GATEWAY, e))
 }
 
