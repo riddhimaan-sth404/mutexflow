@@ -42,10 +42,11 @@ The initial integration keeps Citadel as a loopback-only sidecar to preserve beh
 - Inspected both default branches, repository layouts, runtime languages, API surfaces, and desktop projects.
 - Identified duplicate HTTP control planes and preserved product-specific routes.
 
-### Phase 1 — Safe code import (in progress)
+### Phase 1 — Safe code import (complete)
 - Created `integration/orchestral-runtime` in MutexFlow.
 - Imported the Orchestral Citadel Rust core, Python worker, recipes, CLI, and tests under `orchestral-runtime/`.
 - Kept imported code in its own package boundaries and did not overwrite MutexFlow source.
+- Added a read-only MutexFlow backend health proxy at `GET /api/v1/orchestral/health`, configurable with `ORCHESTRAL_CORE_URL`.
 
 ### Phase 2 — Build and compatibility baseline
 - Run Rust and Python tests from their imported locations.
