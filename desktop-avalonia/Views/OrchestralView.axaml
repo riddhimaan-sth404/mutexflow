@@ -30,7 +30,10 @@
           <TextBlock Text="Scans source/config files for possible hard-coded secrets. Only masked evidence is stored. The worker is restricted to the configured MutexFlow workspace root; it does not run network probes or shell commands." TextWrapping="Wrap" FontSize="12" Foreground="{StaticResource TextMuted}" />
           <Grid ColumnDefinitions="*,Auto">
             <TextBox Text="{Binding Workspace}" Watermark="Relative workspace path, e.g. backend-rust" />
-            <Button Grid.Column="1" Classes="primary" Command="{Binding StartLocalAnalysisCommand}" IsEnabled="{Binding !IsBusy}" Content="Run local scan" />
+            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
+              <Button Classes="primary" Command="{Binding StartLocalAnalysisCommand}" IsEnabled="{Binding !IsBusy}" Content="Run local scan" />
+              <Button Classes="secondary" Command="{Binding CancelLocalAnalysisCommand}" IsVisible="{Binding IsBusy}" Content="Cancel" />
+            </StackPanel>
           </Grid>
           <TextBlock Text="{Binding JobStatusMessage}" TextWrapping="Wrap" FontSize="12" Foreground="{StaticResource TextMuted}" />
         </StackPanel>
