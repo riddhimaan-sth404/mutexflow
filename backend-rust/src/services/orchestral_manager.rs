@@ -83,17 +83,37 @@ impl OrchestralManager {
         std::fs::create_dir_all(&data_dir).map_err(|e| format!("create Orchestral data directory: {e}"))?;
 
         let admin_key = self.admin_key.as_deref().unwrap_or_default();
-        let core_manifest = self.root.join("orchestral-runtime").join("core").join("Cargo.toml");
-        let core_bin = std::env::var("ORCHESTRAL_CORE_BIN").ok().filter(|v| !v.trim().is_empty());
+        let core_dir = self.root.join("orchestral-runtime").join("core");
+        let core_manifest = core_dir.join("Cargo.toml");
+        let configured_core_bin = std::env::var("ORCHESTRAL_CORE_BIN")
+            .ok()
+            .filter(|v| !v.trim().is_empty());
 
-        let mut core_command = if let Some(binary) = core_bin {
-            Command::new(binary)
+        let core_binary = if let Some(binary) = configured_core_bin {
+            PathBuf::from(binary)
         } else {
-            let mut command = Command::new("cargo");
-            command.args(["run", "--quiet", "--manifest-path"])
-                .arg(&core_manifest);
-            command
+            let binary_name = if cfg!(windows) { "orchestral-core.exe" } else { "orchestral-core" };
+            let binary = core_dir.join("target").join("debug").join(binary_name);
+            if !binary.exists() {
+                let build = Command::new("cargo")
+                    .args(["build", "--manifest-path"])
+                    .arg(&core_manifest)
+                    .current_dir(&self.root)
+                    .output();
+                match tokio::time::timeout(Duration::from_secs(180), build).await {
+                    Ok(Ok(output)) if output.status.success() => {}
+                    Ok(Ok(output)) => {
+                        let stderr = String::from_utf8_lossy(&output.stderr);
+                        return Err(format!("build Orchestral Citadel failed: {}", stderr.lines().rev().take(12).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join("\\n")));
+                    }
+                    Ok(Err(error)) => return Err(format!("run Cargo to build Orchestral Citadel: {error}")),
+                    Err(_) => return Err("Orchestral Citadel build timed out after 180 seconds".to_string()),
+                }
+            }
+            binary
         };
+
+        let mut core_command = Command::new(core_binary);
         core_command
             .current_dir(&self.root)
             .env("PORT", port_from_url(&self.core_url).unwrap_or(8088).to_string())
