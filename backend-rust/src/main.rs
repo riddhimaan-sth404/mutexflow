@@ -41,7 +41,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .parent()
         .unwrap_or_else(|| std::path::Path::new("."))
         .to_path_buf();
-    let orchestral = Arc::new(OrchestralManager::new(root));
+    let orchestral = Arc::new(OrchestralManager::new(root.clone()));
+    let jcode = Arc::new(backend_rust::services::jcode_manager::JcodeManager::new(root));
+    if let Err(error) = jcode.start() {
+        tracing::warn!("[JCode] Runtime startup skipped: {}", error);
+    }
     let (shutdown_tx, mut shutdown_rx) = tokio::sync::watch::channel(false);
     tokio::spawn(async move {
         shutdown_signal().await;
@@ -63,7 +67,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    let state = Arc::new(AppState { supabase, port, orchestral: orchestral.clone() });
+    let state = Arc::new(AppState { supabase, port, orchestral: orchestral.clone(), jcode: jcode.clone() });
 
     // The desktop talks to the backend directly (without browser CORS). For
     // browser-based local tooling, permit loopback origins only.
@@ -94,6 +98,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/api/v1/integrations/dispatch", post(routes::integrations::dispatch_integrations))
         .route("/api/v1/integrations/status", get(routes::integrations::get_integrations_status))
         .nest("/api/v1/orchestral", routes::orchestral::router())
+        .nest("/api/v1/jcode", routes::jcode::router())
         .layer(cors)
         .layer(TraceLayer::new_for_http())
         .with_state(state);
