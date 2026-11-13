@@ -1,4 +1,4 @@
-use jcode_sdk::{ConnectOptions, JcodeClient, RunOptions, ToolConfiguration};
+use jcode_sdk::{ApiEvent, ConnectOptions, JcodeClient, RunOptions, SessionToolDefinition, ToolConfiguration};
 use serde::Serialize;
 use serde_json::{json, Value};
 use std::{
@@ -202,10 +202,8 @@ impl JcodeManager {
                 .map_err(|e| format!("create JCode session: {e}"))?;
             // Fail closed: no shell, filesystem mutation, network, MCP, or other
             // built-in tools until each tool has a Citadel-mediated adapter.
-            runtime.client.configure_tools(&session.session_id, ToolConfiguration {
-                enabled: Some(Vec::new()),
-                ..ToolConfiguration::default()
-            }).map_err(|e| format!("disable JCode built-in tools: {e}"))?;
+            runtime.client.configure_tools(&session.session_id, readonly_tool_configuration())
+                .map_err(|e| format!("configure restricted JCode tools: {e}"))?;
             Ok(json!({ "session_id": session.session_id, "status": "created", "tools_enabled": 0 }))
         }).await.map_err(|e| format!("JCode session task failed: {e}"))?
     }
@@ -225,10 +223,29 @@ impl JcodeManager {
         tokio::task::spawn_blocking(move || {
             let _permit = permit;
             let known = runtime.client.list_sessions().map_err(|e| format!("list JCode sessions: {e}"))?;
-            if !known.iter().any(|session| session.session_id == session_id) {
-                return Err("JCode session was not found".into());
-            }
-            let result = runtime.client.run(&session_id, &prompt, RunOptions::default())
+            let session = known.into_iter().find(|session| session.session_id == session_id)
+                .ok_or_else(|| "JCode session was not found".to_string())?;
+            let workspace = session.working_dir.map(PathBuf::from)
+                .ok_or_else(|| "JCode session has no workspace directory".to_string())?
+                .canonicalize().map_err(|e| format!("resolve JCode session workspace: {e}"))?;
+            let client_for_tools = runtime.client.clone();
+            let tool_workspace = workspace.clone();
+            let options = RunOptions {
+                on_event: Some(Box::new(move |event| {
+                    if let ApiEvent::ToolCall { session_id, call_id, name, input } = event {
+                        let outcome = execute_readonly_tool(&tool_workspace, name, input);
+                        let (output, error) = match outcome {
+                            Ok(output) => (output, None),
+                            Err(error) => (String::new(), Some(error)),
+                        };
+                        if let Err(error) = client_for_tools.submit_tool_result(session_id, call_id, &output, error) {
+                            warn!("[JCode] Failed to return restricted tool result: {}", error);
+                        }
+                    }
+                })),
+                ..RunOptions::default()
+            };
+            let result = runtime.client.run(&session_id, &prompt, options)
                 .map_err(|e| format!("JCode turn failed: {e}"))?;
             Ok(json!({
                 "session_id": session_id,
@@ -341,6 +358,88 @@ fn process_exists(pid: i32) -> bool {
     unsafe { libc::kill(pid, 0) == 0 }
 }
 
+
+
+fn readonly_tool_configuration() -> ToolConfiguration {
+    let read_schema = serde_json::json!({
+        "type": "object",
+        "properties": { "path": { "type": "string", "description": "Relative file path inside this session workspace" } },
+        "required": ["path"],
+        "additionalProperties": false
+    }).as_object().expect("JSON schema object").clone();
+    let list_schema = serde_json::json!({
+        "type": "object",
+        "properties": { "path": { "type": "string", "description": "Relative directory path; defaults to workspace root" } },
+        "additionalProperties": false
+    }).as_object().expect("JSON schema object").clone();
+    ToolConfiguration {
+        // No built-in JCode tools. Only backend-executed, read-only tools are
+        // exposed; writes, shell, network, MCP, and self-development stay off.
+        enabled: Some(Vec::new()),
+        disabled: Vec::new(),
+        custom: vec![
+            SessionToolDefinition {
+                name: "workspace_read".into(),
+                description: "Read a small UTF-8 source file inside the assigned workspace. Read-only; no symlinks.".into(),
+                parameters: read_schema,
+            },
+            SessionToolDefinition {
+                name: "workspace_list".into(),
+                description: "List immediate children of a directory inside the assigned workspace. Read-only; no symlinks.".into(),
+                parameters: list_schema,
+            },
+        ],
+    }
+}
+
+fn execute_readonly_tool(root: &Path, name: &str, input: &Value) -> Result<String, String> {
+    let relative = input.get("path").and_then(Value::as_str).unwrap_or(".");
+    validate_relative_workspace(relative)?;
+    let root = root.canonicalize().map_err(|e| format!("resolve workspace: {e}"))?;
+    let mut target = root.clone();
+    for component in Path::new(relative).components() {
+        if let std::path::Component::Normal(part) = component {
+            target.push(part);
+            let metadata = std::fs::symlink_metadata(&target)
+                .map_err(|e| format!("workspace path is unavailable: {e}"))?;
+            if metadata.file_type().is_symlink() {
+                return Err("symlinks are not readable through the JCode workspace tools".into());
+            }
+        }
+    }
+    let target = target.canonicalize().map_err(|e| format!("resolve workspace path: {e}"))?;
+    if !target.starts_with(&root) {
+        return Err("workspace path escapes the assigned root".into());
+    }
+    match name {
+        "workspace_read" => {
+            let metadata = std::fs::metadata(&target).map_err(|e| format!("read file metadata: {e}"))?;
+            if !metadata.is_file() || metadata.len() > 64 * 1024 {
+                return Err("workspace_read accepts regular files up to 64 KiB".into());
+            }
+            std::fs::read_to_string(&target).map_err(|e| format!("read UTF-8 source file: {e}"))
+        }
+        "workspace_list" => {
+            let metadata = std::fs::metadata(&target).map_err(|e| format!("read directory metadata: {e}"))?;
+            if !metadata.is_dir() {
+                return Err("workspace_list requires a directory".into());
+            }
+            let mut entries = Vec::new();
+            for entry in std::fs::read_dir(&target).map_err(|e| format!("list workspace directory: {e}"))? {
+                let entry = entry.map_err(|e| format!("read workspace entry: {e}"))?;
+                let file_type = entry.file_type().map_err(|e| format!("read entry type: {e}"))?;
+                if file_type.is_symlink() { continue; }
+                entries.push(json!({
+                    "name": entry.file_name().to_string_lossy(),
+                    "kind": if file_type.is_dir() { "directory" } else if file_type.is_file() { "file" } else { "other" }
+                }));
+                if entries.len() >= 200 { break; }
+            }
+            serde_json::to_string(&entries).map_err(|e| format!("serialize directory listing: {e}"))
+        }
+        _ => Err("unknown restricted JCode tool".into()),
+    }
+}
 
 fn validate_relative_workspace(workspace: &str) -> Result<(), String> {
     let path = Path::new(workspace);
