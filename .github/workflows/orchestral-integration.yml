@@ -1,0 +1,57 @@
+name: MutexFlow + Orchestral integration checks
+
+on:
+  push:
+    branches:
+      - "integration/**"
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  mutexflow-backend:
+    name: MutexFlow Rust backend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Test backend
+        run: cargo test --manifest-path backend-rust/Cargo.toml
+
+  orchestral-core:
+    name: Orchestral Citadel core
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Test Citadel
+        run: cargo test --manifest-path orchestral-runtime/core/Cargo.toml
+
+  orchestral-worker:
+    name: Orchestral Python worker
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install worker
+        run: python -m pip install -e ./orchestral-runtime/worker
+      - name: Check Python syntax
+        run: python -m compileall -q orchestral-runtime/worker/orchestral_worker
+      - name: Run guard unit tests
+        run: python -m unittest discover -s orchestral-runtime/tests -p "test_unit_guards.py" -v
+
+  mutexflow-desktop:
+    name: MutexFlow Avalonia desktop
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "9.0.x"
+      - name: Build desktop
+        run: dotnet build desktop-avalonia/MutexFlow.Desktop.csproj --configuration Release
