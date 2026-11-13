@@ -77,10 +77,11 @@ The initial integration keeps Citadel as a loopback-only sidecar to preserve beh
 - Remaining hardening includes OS-native secret storage for the backend's Orchestral admin key, stronger process sandboxing, and explicit audit-chain verification/key-rotation work.
 
 ### Phase 6 — Validation and release (in progress)
-- CI covers both Rust projects, Python worker syntax/guard tests, and Avalonia desktop build.
+- CI covers both Rust projects, Python worker syntax/guard tests, and Avalonia desktop build on Linux and Windows.
 - Added unit tests for loopback URL validation, job ID validation, workspace traversal/symlink rejection, masked secret evidence, and cooperative cancellation.
-- Process lifecycle, findings persistence, approval actions, and full shutdown integration tests remain outstanding before release.
-- General-purpose autonomous agent spawning, arbitrary tool dispatch, event streaming UI, and cancellation remain out of scope until the API contract and sandbox model are completed.
+- Added a managed-runtime end-to-end test that starts backend-managed Citadel and worker processes, runs a local analysis job, reads agent/finding state, exercises both approval and denial through the backend, and retrieves audit events.
+- Remaining validation includes explicit assertions that child processes exit after shutdown, crash/restart behavior, audit-chain verification/key rotation, and broader lifecycle/security tests.
+- General-purpose autonomous agent spawning, arbitrary tool dispatch, event streaming UI, and autonomous-agent cancellation remain out of scope until the API contract and sandbox model are completed.
 
 ### Phase 7 — Compatibility and rollout
 - Keep standalone Orchestral packaging available while the new MutexFlow adapter matures.
