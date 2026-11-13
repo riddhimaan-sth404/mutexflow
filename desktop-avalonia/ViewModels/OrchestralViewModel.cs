@@ -46,7 +46,13 @@ public partial class OrchestralViewModel : ViewModelBase
         RuntimeStatusMessage = status?["message"]?.GetValue<string>()
             ?? "MutexFlow backend is unavailable or Orchestral is not configured.";
 
-        Replace(PendingApprovals, await approvalsTask);
+        var approvals = await approvalsTask;
+        foreach (var approval in approvals)
+        {
+            approval.ApproveCommand = new AsyncRelayCommand(() => ApproveAsync(approval));
+            approval.DenyCommand = new AsyncRelayCommand(() => DenyAsync(approval));
+        }
+        Replace(PendingApprovals, approvals);
         Replace(Agents, await agentsTask);
         Replace(Findings, await findingsTask);
         Replace(AuditEntries, await auditTask);
