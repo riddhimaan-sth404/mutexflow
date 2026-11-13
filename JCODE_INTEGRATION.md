@@ -23,9 +23,9 @@ Do not import JCode's TUI or provider UI into the desktop. Do not create a secon
 2. Set credential inheritance off. Never import the user's interactive JCode home or credentials implicitly.
 3. Keep the JCode API transport local-only (Unix socket or Windows named pipe); do not expose it on a network interface.
 4. Configure each session with an explicit tool allowlist. The safe initial configuration is an empty built-in tool set.
-5. Custom tool calls must return to the MutexFlow/Orchestral adapter. Citadel performs scope and policy checks and records the decision before a tool can execute.
-6. Keep shell, process execution, network tools, self-development, and autonomous external actions disabled until each has a separately reviewed sandbox and approval design.
-7. Treat model output and JCode events as untrusted input. Bound message sizes, stream buffers, execution time, and concurrent sessions.
+5. Custom tool calls return to the MutexFlow backend adapter. The currently exposed tools are read-only workspace listing and UTF-8 file reading, with canonical-root confinement, traversal rejection, symlink rejection, and strict output limits.
+6. Citadel-mediated audit/approval for state-changing tools is not yet implemented. Keep writes, shell/process execution, network tools, MCP, self-development, and autonomous external actions disabled until that adapter exists.
+7. Treat model output and JCode events as untrusted input. Bound message sizes, file reads, directory listings, execution time, and concurrent sessions.
 8. Store provider credentials only through an explicit user-controlled credential flow. Never pass the MutexFlow admin key, JWT secret, Supabase credentials, or unrelated environment variables to JCode.
 
 ## Integration stages
@@ -40,15 +40,15 @@ Do not import JCode's TUI or provider UI into the desktop. Do not create a secon
 - Launch JCode's API bridge as a backend-owned child process with a clean environment, isolated `JCODE_HOME`, and no inherited provider login files.
 - Connect through the supported Rust SDK with automatic shared-runtime startup disabled.
 - Add backend endpoints for runtime health, session listing/creation, concurrent message turns, and cancellation.
-- Configure each new session with an explicitly empty built-in tool allowlist until tools are routed through Citadel policy mediation.
+- Configure each new session with an explicitly empty built-in tool allowlist and two backend-executed custom read-only tools (`workspace_read` and `workspace_list`).
 - Bound concurrent turns to eight and prompt payloads to 64 KiB.
 - Terminate the managed JCode process when the backend runtime is dropped.
 - The SDK's built-in `launch_instance` helper is intentionally not used because its launch options inherit the parent process environment; MutexFlow instead launches the bridge with an explicit environment allowlist.
 
-### J2 — Orchestral policy mediation (not complete)
-- JCode sessions currently have built-in tools disabled. This prevents unmediated shell, filesystem mutation, and network actions.
-- The next implementation step is a custom-tool adapter whose operations are checked and audited by Citadel before execution.
-- Native JCode swarm coordination is not enabled for tool-using workers until this mediation exists.
+### J2 — Orchestral policy mediation (partial)
+- Built-in JCode tools remain disabled.
+- Backend custom tools provide confined, read-only workspace listing and file reading; tests cover traversal rejection and basic reads.
+- State-changing tools, shell, network, MCP, and native autonomous swarm workers remain disabled until Citadel policy evaluation, approval, audit, and sandboxing are integrated.
 
 ### J3 — Avalonia presentation (pending)
 - Add JCode runtime status and session controls to the existing Orchestral dashboard.
@@ -64,4 +64,4 @@ Do not import JCode's TUI or provider UI into the desktop. Do not create a secon
 
 ## Current status
 
-J0 is implemented. J1 backend integration has been added to the existing PR branch and is awaiting CI validation. J2 policy-mediated tools, J3 Avalonia controls, and J4 measured performance/release gates remain incomplete. The JCode runtime is disabled by default and requires an explicitly configured binary. No speedup claim is made.
+J0 is implemented. J1 backend integration and J3 Avalonia controls are implemented in the branch and awaiting CI validation. J2 is partial: only confined read-only tools are exposed; Citadel-mediated state-changing tools and native JCode swarm execution remain incomplete. J4 measured performance/release gates remain incomplete. The JCode runtime is disabled by default, requires an explicitly configured binary, and is only enabled when the backend binds to loopback. No speedup claim is made.
