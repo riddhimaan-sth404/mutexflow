@@ -37,7 +37,7 @@ def _json_bytes(value: Any) -> bytes:
 
 def _resolve_workspace(relative: str) -> Path:
     candidate = Path(relative)
-    if candidate.is_absolute() or any(part == ".." for part in candidate.parts):
+    if candidate.is_absolute() or candidate.drive or candidate.root or any(part == ".." for part in candidate.parts):
         raise ValueError("workspace must be a relative path inside the configured workspace root")
     resolved = (WORKSPACE_ROOT / candidate).resolve(strict=True)
     if os.path.commonpath((str(WORKSPACE_ROOT), str(resolved))) != str(WORKSPACE_ROOT):
