@@ -19,3 +19,5 @@ url = "2.5"
 urlencoding = "2.1"
 futures-util = "0.3"
 chrono = { version = "0.4", features = ["serde"] }
+# Pinned JCode Harness SDK for isolated multi-session agent orchestration.
+jcode-sdk = { git = "https://github.com/1jehuang/jcode", rev = "72f9c07ff59639221b9f371b759f784416bd1d12", default-features = false }
