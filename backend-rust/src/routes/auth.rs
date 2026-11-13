@@ -19,6 +19,7 @@ use tracing::{error, info, warn};
 pub struct AppState {
     pub supabase: Option<SupabaseClient>,
     pub port: u16,
+    pub orchestral: Arc<crate::services::orchestral_manager::OrchestralManager>,
 }
 
 #[derive(Debug, Deserialize)]
