@@ -291,7 +291,7 @@ The MutexFlow backend can manage the Orchestral Citadel and the restricted local
 4. Install Rust/Cargo and Python 3.10 or newer. The restricted worker uses the Python standard library plus the vendored Orchestral worker modules.
 5. Start MutexFlow with `run.bat` on Windows or launch the Rust backend from `backend-rust/` on other platforms.
 
-The backend starts Citadel on loopback port 8088 and the local worker on loopback port 8090. It shuts both down when the backend receives Ctrl+C. Set `ORCHESTRAL_CORE_BIN` to use a prebuilt Citadel executable instead of `cargo run`; set `PYTHON` to override the Python executable.
+The backend binds to loopback by default (`BIND_ADDR=127.0.0.1`), starts Citadel on loopback port 8088 and the local worker on loopback port 8090, and restricts browser CORS origins to loopback. Remote binding requires an explicit `BIND_ADDR` override and should be protected by an authenticated reverse proxy/firewall. It shuts both down when the backend receives Ctrl+C. Set `ORCHESTRAL_CORE_BIN` to use a prebuilt Citadel executable instead of `cargo run`; set `PYTHON` to override the Python executable.
 
 ### Orchestral dashboard and supported workflow
 
