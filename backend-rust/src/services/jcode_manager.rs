@@ -461,6 +461,26 @@ fn validate_relative_workspace(workspace: &str) -> Result<(), String> {
 mod tests {
     use super::validate_relative_workspace;
 
+
+    #[test]
+    fn readonly_tools_are_confined_and_bounded() {
+        let root = std::env::temp_dir().join(format!("mutexflow-jcode-tools-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).expect("create test workspace");
+        std::fs::write(root.join("hello.txt"), "hello from workspace").expect("write fixture");
+
+        let read = super::execute_readonly_tool(&root, "workspace_read", &serde_json::json!({"path":"hello.txt"}))
+            .expect("read confined file");
+        assert_eq!(read, "hello from workspace");
+
+        let listing = super::execute_readonly_tool(&root, "workspace_list", &serde_json::json!({}))
+            .expect("list workspace");
+        assert!(listing.contains("hello.txt"));
+
+        assert!(super::execute_readonly_tool(&root, "workspace_read", &serde_json::json!({"path":"../outside"})).is_err());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
     #[test]
     fn workspace_paths_must_be_relative_and_confined() {
         assert!(validate_relative_workspace(".").is_ok());
