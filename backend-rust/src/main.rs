@@ -42,8 +42,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap_or_else(|| std::path::Path::new("."))
         .to_path_buf();
     let orchestral = Arc::new(OrchestralManager::new(root));
-    if let Err(error) = orchestral.start().await {
-        tracing::error!("[Orchestral] Runtime startup failed: {}", error);
+    let shutdown = shutdown_signal();
+    tokio::pin!(shutdown);
+    tokio::select! {
+        result = orchestral.start() => {
+            if let Err(error) = result {
+                tracing::error!("[Orchestral] Runtime startup failed: {}", error);
+            }
+        }
+        _ = &mut shutdown => {
+            info!("Shutdown signal received during Orchestral startup");
+            orchestral.shutdown().await;
+            return Ok(());
+        }
     }
 
     let state = Arc::new(AppState { supabase, port, orchestral: orchestral.clone() });
@@ -90,7 +101,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let listener = tokio::net::TcpListener::bind(addr).await?;
     let server_result = axum::serve(listener, app)
         .with_graceful_shutdown(async {
-            let _ = tokio::signal::ctrl_c().await;
+            shutdown.await;
             info!("Shutdown signal received");
         })
         .await;
@@ -98,4 +109,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     orchestral.shutdown().await;
     server_result?;
     Ok(())
+}
+
+#[cfg(unix)]
+async fn shutdown_signal() {
+    use tokio::signal::unix::{signal, SignalKind};
+
+    let mut terminate = signal(SignalKind::terminate())
+        .expect("failed to install SIGTERM handler");
+    tokio::select! {
+        _ = tokio::signal::ctrl_c() => {}
+        _ = terminate.recv() => {}
+    }
+}
+
+#[cfg(not(unix))]
+async fn shutdown_signal() {
+    let _ = tokio::signal::ctrl_c().await;
 }
