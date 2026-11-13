@@ -51,9 +51,12 @@ impl JcodeManager {
         let binary = std::env::var_os("JCODE_BINARY")
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from(if cfg!(windows) { "jcode.exe" } else { "jcode" }));
-        let enabled = std::env::var("JCODE_AUTOSTART")
+        let requested = std::env::var("JCODE_AUTOSTART")
             .map(|v| v.eq_ignore_ascii_case("true") || v == "1")
             .unwrap_or(false);
+        let bind_addr = std::env::var("BIND_ADDR").unwrap_or_else(|_| "127.0.0.1".into());
+        let loopback_only = matches!(bind_addr.as_str(), "127.0.0.1" | "localhost" | "::1" | "[::1]");
+        let enabled = requested && loopback_only;
         Self {
             root,
             binary,
@@ -72,7 +75,9 @@ impl JcodeManager {
             connected,
             binary: self.binary.display().to_string(),
             max_concurrent_turns: MAX_CONCURRENT_TURNS,
-            message: if !self.enabled {
+            message: if !self.enabled && std::env::var("JCODE_AUTOSTART").map(|v| v.eq_ignore_ascii_case("true") || v == "1").unwrap_or(false) {
+                "JCode autostart was blocked because the backend is not bound to a loopback address. Keep BIND_ADDR on localhost for this unauthenticated local runtime.".into()
+            } else if !self.enabled {
                 "JCode is disabled. Set JCODE_AUTOSTART=true and configure JCODE_BINARY to enable the isolated runtime.".into()
             } else if connected {
                 "JCode Harness is connected. Sessions use an isolated home and start with built-in tools disabled.".into()
