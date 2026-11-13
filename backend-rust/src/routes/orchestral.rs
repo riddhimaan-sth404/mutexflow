@@ -42,12 +42,12 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/agents", get(agents))
         .route("/findings", get(findings))
         .route("/approvals", get(pending_approvals))
-        .route("/approvals/{id}/approve", post(approve))
-        .route("/approvals/{id}/deny", post(deny))
+        .route("/approvals/:id/approve", post(approve))
+        .route("/approvals/:id/deny", post(deny))
         .route("/audit", get(audit))
         .route("/jobs/local-analysis", post(start_local_analysis))
-        .route("/jobs/{id}", get(get_local_analysis_job))
-        .route("/jobs/{id}/cancel", post(cancel_local_analysis_job))
+        .route("/jobs/:id", get(get_local_analysis_job))
+        .route("/jobs/:id/cancel", post(cancel_local_analysis_job))
 }
 
 async fn health(State(state): State<Arc<AppState>>) -> Json<crate::services::orchestral_manager::OrchestralRuntimeStatus> {
@@ -83,7 +83,7 @@ async fn approve(
     if !is_uuid(&id) {
         return Err(error_response(StatusCode::BAD_REQUEST, "Invalid approval identifier".to_string()));
     }
-    state.orchestral.core_post_empty(&format!("/api/v1/hitl/{id}/approve")).await
+    state.orchestral.core_post_empty(&format!("/api/v1/hitl/:id/approve")).await
         .map(Json)
         .map_err(|e| error_response(StatusCode::BAD_GATEWAY, e))
 }
@@ -95,7 +95,7 @@ async fn deny(
     if !is_uuid(&id) {
         return Err(error_response(StatusCode::BAD_REQUEST, "Invalid approval identifier".to_string()));
     }
-    state.orchestral.core_post_empty(&format!("/api/v1/hitl/{id}/deny")).await
+    state.orchestral.core_post_empty(&format!("/api/v1/hitl/:id/deny")).await
         .map(Json)
         .map_err(|e| error_response(StatusCode::BAD_GATEWAY, e))
 }
