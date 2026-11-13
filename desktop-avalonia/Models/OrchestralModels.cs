@@ -1,5 +1,6 @@
 using System;
 using System.Text.Json.Serialization;
+using System.Windows.Input;
 
 namespace MutexFlow.Desktop.Models;
 
@@ -12,6 +13,8 @@ public sealed class OrchestralApproval
     [JsonPropertyName("command_preview")] public string CommandPreview { get; set; } = string.Empty;
     [JsonPropertyName("risk_tier")] public string RiskTier { get; set; } = string.Empty;
     [JsonPropertyName("status")] public string Status { get; set; } = string.Empty;
+    [JsonIgnore] public ICommand? ApproveCommand { get; set; }
+    [JsonIgnore] public ICommand? DenyCommand { get; set; }
 }
 
 public sealed class OrchestralAgent
