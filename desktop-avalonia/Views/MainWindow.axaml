@@ -63,6 +63,17 @@
           <Button Classes="secondary"
                   HorizontalAlignment="Stretch"
                   Command="{Binding NavigateCommand}"
+                  CommandParameter="orchestral"
+                  Padding="12,10">
+            <StackPanel Orientation="Horizontal" Spacing="10">
+              <TextBlock Text="◎" Foreground="{StaticResource AccentPurple}" />
+              <TextBlock Text="Orchestral" FontWeight="Medium" />
+            </StackPanel>
+          </Button>
+
+          <Button Classes="secondary"
+                  HorizontalAlignment="Stretch"
+                  Command="{Binding NavigateCommand}"
                   CommandParameter="local-ai"
                   Padding="12,10">
             <StackPanel Orientation="Horizontal" Spacing="10">
@@ -103,6 +114,9 @@
         </DataTemplate>
         <DataTemplate DataType="vm:SettingsViewModel">
           <views:SettingsView />
+        </DataTemplate>
+        <DataTemplate DataType="vm:OrchestralViewModel">
+          <views:OrchestralView />
         </DataTemplate>
       </ContentControl.DataTemplates>
     </ContentControl>
