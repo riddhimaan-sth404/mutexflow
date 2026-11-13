@@ -20,11 +20,19 @@ public partial class OrchestralViewModel : ViewModelBase
     [ObservableProperty] private bool _workerHealthy;
     [ObservableProperty] private bool _isBusy;
     [ObservableProperty] private string _activeJobId = string.Empty;
+    [ObservableProperty] private string _jcodeStatusMessage = "Checking JCode runtime...";
+    [ObservableProperty] private string _jcodeWorkspace = ".";
+    [ObservableProperty] private string _jcodePrompt = string.Empty;
+    [ObservableProperty] private string _jcodeSessionId = string.Empty;
+    [ObservableProperty] private string _jcodeResult = string.Empty;
+    [ObservableProperty] private bool _jcodeConnected;
+    [ObservableProperty] private bool _isJcodeBusy;
 
     public ObservableCollection<OrchestralApproval> PendingApprovals { get; } = new();
     public ObservableCollection<OrchestralAgent> Agents { get; } = new();
     public ObservableCollection<OrchestralFinding> Findings { get; } = new();
     public ObservableCollection<OrchestralAuditEntry> AuditEntries { get; } = new();
+    public ObservableCollection<string> JcodeSessions { get; } = new();
 
     public OrchestralViewModel(IAgentClientService client)
     {
@@ -36,6 +44,7 @@ public partial class OrchestralViewModel : ViewModelBase
     public async Task RefreshAsync()
     {
         var statusTask = _client.GetOrchestralStatusAsync();
+        var jcodeStatusTask = _client.GetJcodeStatusAsync();
         var approvalsTask = _client.GetPendingApprovalsAsync();
         var agentsTask = _client.GetOrchestralAgentsAsync();
         var findingsTask = _client.GetOrchestralFindingsAsync();
@@ -46,6 +55,10 @@ public partial class OrchestralViewModel : ViewModelBase
         WorkerHealthy = status?["worker_healthy"]?.GetValue<bool>() ?? false;
         RuntimeStatusMessage = status?["message"]?.GetValue<string>()
             ?? "MutexFlow backend is unavailable or Orchestral is not configured.";
+        var jcodeStatus = await jcodeStatusTask;
+        JcodeConnected = jcodeStatus?["connected"]?.GetValue<bool>() ?? false;
+        JcodeStatusMessage = jcodeStatus?["message"]?.GetValue<string>()
+            ?? "JCode status unavailable. Check the MutexFlow backend.";
 
         var approvals = await approvalsTask;
         foreach (var approval in approvals)
@@ -144,6 +157,58 @@ public partial class OrchestralViewModel : ViewModelBase
             ? $"Request denied for {approval.ToolName}."
             : $"Denial failed: {result.Error}";
         await RefreshAsync();
+    }
+
+
+    [RelayCommand]
+    public async Task CreateJcodeSessionAsync()
+    {
+        if (!JcodeConnected || IsJcodeBusy) return;
+        IsJcodeBusy = true;
+        try
+        {
+            var created = await _client.CreateJcodeSessionAsync(JcodeWorkspace.Trim());
+            if (!created.Ok || string.IsNullOrWhiteSpace(created.SessionId))
+            {
+                JcodeStatusMessage = created.Error ?? "Could not create JCode session.";
+                return;
+            }
+            JcodeSessionId = created.SessionId;
+            if (!JcodeSessions.Contains(created.SessionId))
+                JcodeSessions.Add(created.SessionId);
+            JcodeStatusMessage = $"Created isolated JCode agent session {created.SessionId}.";
+        }
+        finally { IsJcodeBusy = false; }
+    }
+
+    [RelayCommand]
+    public async Task RunJcodeSessionAsync()
+    {
+        if (string.IsNullOrWhiteSpace(JcodeSessionId) || string.IsNullOrWhiteSpace(JcodePrompt) || IsJcodeBusy) return;
+        IsJcodeBusy = true;
+        try
+        {
+            JcodeStatusMessage = "JCode agent is processing the task...";
+            var result = await _client.RunJcodeSessionAsync(JcodeSessionId, JcodePrompt);
+            if (!result.Ok)
+            {
+                JcodeStatusMessage = result.Error ?? "JCode turn failed.";
+                return;
+            }
+            JcodeResult = result.Result ?? string.Empty;
+            JcodeStatusMessage = "JCode turn completed.";
+        }
+        finally { IsJcodeBusy = false; }
+    }
+
+    [RelayCommand]
+    public async Task CancelJcodeSessionAsync()
+    {
+        if (string.IsNullOrWhiteSpace(JcodeSessionId)) return;
+        var result = await _client.CancelJcodeSessionAsync(JcodeSessionId);
+        JcodeStatusMessage = result.Ok
+            ? "Cancellation requested for the selected JCode session."
+            : $"JCode cancellation failed: {result.Error}";
     }
 
     private static void Replace<T>(ObservableCollection<T> collection, System.Collections.Generic.IEnumerable<T> items)
