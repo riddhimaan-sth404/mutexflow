@@ -133,8 +133,18 @@ impl JcodeManager {
         let mut child = command.spawn().map_err(|e| format!("start isolated JCode Harness: {e}"))?;
         let deadline = Instant::now() + Duration::from_secs(45);
         let client = loop {
-            if let Some(status) = child.try_wait().map_err(|e| format!("check JCode process: {e}"))? {
-                return Err(format!("JCode Harness exited during startup ({status})"));
+            match child.try_wait() {
+                Ok(Some(status)) => {
+                    stop_registered_daemon(&home);
+                    return Err(format!("JCode Harness exited during startup ({status})"));
+                }
+                Err(error) => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    stop_registered_daemon(&home);
+                    return Err(format!("check JCode process: {error}"));
+                }
+                Ok(None) => {}
             }
             let options = ConnectOptions {
                 socket_path: Some(socket.clone()),
@@ -149,6 +159,7 @@ impl JcodeManager {
             if Instant::now() >= deadline {
                 let _ = child.kill();
                 let _ = child.wait();
+                stop_registered_daemon(&home);
                 return Err("JCode Harness did not become ready within 45 seconds".into());
             }
             std::thread::sleep(Duration::from_millis(250));
