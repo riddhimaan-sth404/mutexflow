@@ -21,6 +21,7 @@ struct JcodeRuntime {
 
 impl Drop for JcodeRuntime {
     fn drop(&mut self) {
+        stop_registered_daemon(&self.home);
         if let Ok(child) = self.child.get_mut() {
             let _ = child.kill();
             let _ = child.wait();
@@ -63,7 +64,9 @@ impl JcodeManager {
     }
 
     pub fn status(&self) -> JcodeStatus {
-        let connected = self.runtime.lock().map(|slot| slot.is_some()).unwrap_or(false);
+        let connected = self.runtime.lock().map(|slot| {
+            slot.as_ref().map(|runtime| runtime.client.ping().is_ok()).unwrap_or(false)
+        }).unwrap_or(false);
         JcodeStatus {
             enabled: self.enabled,
             connected,
@@ -266,6 +269,59 @@ impl JcodeManager {
             serde_json::to_value(sessions).map_err(|e| format!("serialize JCode sessions: {e}"))
         }).await.map_err(|e| format!("JCode session listing failed: {e}"))?
     }
+}
+
+
+fn stop_registered_daemon(home: &Path) {
+    let runtime_dir = home.join("run");
+    let expected_socket = runtime_dir.join("jcode.sock");
+    let registry_path = home.join("servers.json");
+    let Ok(raw) = std::fs::read(registry_path) else { return; };
+    let Ok(registry) = serde_json::from_slice::<Value>(&raw) else { return; };
+    let Some(entries) = registry.as_object() else { return; };
+    for entry in entries.values() {
+        let Some(socket) = entry.get("socket").and_then(Value::as_str) else { continue; };
+        let Some(pid) = entry.get("pid").and_then(Value::as_i64) else { continue; };
+        if Path::new(socket) != expected_socket || pid <= 1 || pid > i32::MAX as i64 {
+            continue;
+        }
+        #[cfg(unix)]
+        {
+            let pid = pid as i32;
+            // The SDK's own shutdown routine targets the registered daemon's
+            // process group, falling back to the PID. Mirror that behavior only
+            // after matching the socket inside our private JCODE_HOME.
+            unsafe {
+                if libc::kill(-pid, libc::SIGTERM) != 0 {
+                    libc::kill(pid, libc::SIGTERM);
+                }
+            }
+            let deadline = Instant::now() + Duration::from_secs(2);
+            while Instant::now() < deadline && process_exists(pid) {
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            if process_exists(pid) {
+                unsafe {
+                    if libc::kill(-pid, libc::SIGKILL) != 0 {
+                        libc::kill(pid, libc::SIGKILL);
+                    }
+                }
+            }
+        }
+        #[cfg(windows)]
+        {
+            let _ = Command::new("taskkill")
+                .args(["/PID", &pid.to_string(), "/T", "/F"])
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status();
+        }
+    }
+}
+
+#[cfg(unix)]
+fn process_exists(pid: i32) -> bool {
+    unsafe { libc::kill(pid, 0) == 0 }
 }
 
 #[cfg(unix)]
