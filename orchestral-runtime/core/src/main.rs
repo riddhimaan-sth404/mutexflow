@@ -111,10 +111,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 origin
                     .to_str()
                     .map(|o| {
-                        o.starts_with("http://localhost")
-                            || o.starts_with("http://127.0.0.1")
-                            || o.starts_with("https://localhost")
-                            || o.starts_with("https://127.0.0.1")
+                        o == "http://localhost"
+                            || o.starts_with("http://localhost:")
+                            || o == "http://127.0.0.1"
+                            || o.starts_with("http://127.0.0.1:")
+                            || o == "https://localhost"
+                            || o.starts_with("https://localhost:")
+                            || o == "https://127.0.0.1"
+                            || o.starts_with("https://127.0.0.1:")
+                            || o.starts_with("http://[::1]:")
+                            || o.starts_with("https://[::1]:")
                     })
                     .unwrap_or(false)
             }))
