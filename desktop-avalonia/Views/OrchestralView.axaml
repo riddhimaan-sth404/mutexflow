@@ -56,7 +56,6 @@
             </DataTemplate>
           </ItemsControl.ItemTemplate>
         </ItemsControl>
-        <TextBlock Text="No pending approval requests." IsVisible="{Binding PendingApprovals.Count, Converter={x:Static ObjectConverters.IsNull}}" Foreground="{StaticResource TextMuted}" />
       </StackPanel>
 
       <StackPanel Spacing="8">
