@@ -110,3 +110,12 @@ The initial integration keeps Citadel as a loopback-only sidecar to preserve beh
 - MutexFlow integration branch: `integration/orchestral-runtime`
 
 Update completion status only after corresponding code and tests are verified.
+
+
+## Phase 8 — JCode runtime evaluation and integration
+
+- Identified upstream JCode as `1jehuang/jcode`, a Rust coding-agent harness with a versioned Harness API and Rust SDK.
+- Verified the upstream MIT license and pinned the inspected compatibility snapshot at `72f9c07ff59639221b9f371b759f784416bd1d12`.
+- Added `JCODE_INTEGRATION.md` defining the responsibility split, isolated-instance requirements, credential isolation, local IPC boundary, tool mediation, and performance/release gates.
+- Added `.github/workflows/jcode-compatibility.yml` to test the pinned upstream SDK, Harness API, and API bridge on Linux and Windows.
+- This is the upstream contract/compatibility baseline only. The JCode runtime manager, Orchestral policy-mediated tool bridge, Avalonia controls, and measured performance comparison remain outstanding. Do not mark this phase complete until those implementations and tests exist.
