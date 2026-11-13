@@ -1,12 +1,11 @@
-use reqwest::header::HeaderValue;
 use serde::Serialize;
 use serde_json::{json, Value};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::Stdio;
 use std::time::Duration;
 use tokio::process::{Child, Command};
 use tokio::sync::Mutex;
-use tracing::{info, warn};
+use tracing::info;
 
 struct RuntimeProcesses {
     core: Option<Child>,
@@ -113,7 +112,7 @@ impl OrchestralManager {
         let mut core = core_command.spawn()
             .map_err(|e| format!("start Orchestral Citadel (check Cargo or ORCHESTRAL_CORE_BIN): {e}"))?;
 
-        if !self.wait_for_health(&self.core_url, None, Duration::from_secs(180)).await {
+        if !self.wait_for_health(&self.core_url, Duration::from_secs(180), &mut core).await {
             let _ = core.kill().await;
             let _ = core.wait().await;
             return Err("Orchestral Citadel did not become healthy within 180 seconds".to_string());
@@ -143,7 +142,7 @@ impl OrchestralManager {
             }
         };
 
-        if !self.wait_for_health(&self.worker_url, None, Duration::from_secs(10)).await {
+        if !self.wait_for_health(&self.worker_url, Duration::from_secs(10), &mut worker).await {
             let _ = worker.kill().await;
             let _ = worker.wait().await;
             let _ = core.kill().await;
@@ -157,14 +156,13 @@ impl OrchestralManager {
         Ok(())
     }
 
-    async fn wait_for_health(&self, base_url: &str, token: Option<&str>, timeout: Duration) -> bool {
+    async fn wait_for_health(&self, base_url: &str, timeout: Duration, child: &mut Child) -> bool {
         let deadline = tokio::time::Instant::now() + timeout;
         while tokio::time::Instant::now() < deadline {
-            let mut request = self.client.get(format!("{}/health", base_url));
-            if let Some(value) = token {
-                request = request.header("X-MutexFlow-Worker-Token", value);
+            if matches!(child.try_wait(), Ok(Some(_)) | Err(_)) {
+                return false;
             }
-            if let Ok(response) = request.send().await {
+            if let Ok(response) = self.client.get(format!("{}/health", base_url)).send().await {
                 if response.status().is_success() {
                     return true;
                 }
