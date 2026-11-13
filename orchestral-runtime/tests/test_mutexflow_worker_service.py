@@ -1,5 +1,6 @@
 import os
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 
@@ -47,6 +48,17 @@ class LocalWorkspaceBoundaryTests(unittest.TestCase):
                 outside.rmdir()
             except OSError:
                 pass
+
+    def test_local_scan_honors_cancellation(self):
+        cancel_event = threading.Event()
+        cancel_event.set()
+        result = NativeSecretScannerTool().execute(
+            agent_id="test-agent",
+            target=str(self.root / "project"),
+            directory_path=str(self.root / "project"),
+            cancel_event=cancel_event,
+        )
+        self.assertEqual(result.get("status"), "cancelled")
 
     def test_secret_scanner_masks_detected_value(self):
         secret = "ghp_" + ("a" * 36)
