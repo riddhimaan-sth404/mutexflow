@@ -27,6 +27,7 @@ MAX_BODY = 16 * 1024
 
 _jobs: dict[str, dict[str, Any]] = {}
 _jobs_lock = threading.Lock()
+_cancel_events: dict[str, threading.Event] = {}
 _executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="mutexflow-analysis")
 
 
@@ -48,7 +49,7 @@ def _resolve_workspace(relative: str) -> Path:
     return resolved
 
 
-def _run_job(job_id: str, relative: str) -> None:
+def _run_job(job_id: str, relative: str, cancel_event: threading.Event) -> None:
     with _jobs_lock:
         _jobs[job_id]["status"] = "running"
     try:
@@ -58,6 +59,7 @@ def _run_job(job_id: str, relative: str) -> None:
             agent_id=AGENT_ID,
             target=str(workspace),
             directory_path=str(workspace),
+            cancel_event=cancel_event,
         )
         findings = []
         for item in result.get("findings", []):
@@ -97,7 +99,7 @@ def _run_job(job_id: str, relative: str) -> None:
 
         with _jobs_lock:
             _jobs[job_id].update({
-                "status": "completed",
+                "status": "cancelled" if result.get("status") == "cancelled" else "completed",
                 "workspace": relative,
                 "scanned_files_findings": len(findings),
                 "findings_submitted": submitted,
@@ -106,6 +108,9 @@ def _run_job(job_id: str, relative: str) -> None:
     except Exception as exc:  # surfaced as a bounded job error
         with _jobs_lock:
             _jobs[job_id].update({"status": "failed", "error": f"{type(exc).__name__}: {exc}"})
+    finally:
+        with _jobs_lock:
+            _cancel_events.pop(job_id, None)
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -150,6 +155,22 @@ class Handler(BaseHTTPRequestHandler):
         if not self._authorized():
             self._send(401, {"error": "unauthorized"})
             return
+        if self.path.startswith("/v1/jobs/") and self.path.endswith("/cancel"):
+            job_id = self.path[len("/v1/jobs/"):-len("/cancel")].strip("/")
+            with _jobs_lock:
+                job = _jobs.get(job_id)
+                event = _cancel_events.get(job_id)
+                if job is None or event is None:
+                    self._send(404, {"error": "job not found or already finished"})
+                    return
+                if job.get("status") not in ("queued", "running", "cancel_requested"):
+                    self._send(409, {"error": "job is no longer cancellable"})
+                    return
+                event.set()
+                job["status"] = "cancel_requested"
+            self._send(202, {"job_id": job_id, "status": "cancel_requested"})
+            return
+
         if self.path != "/v1/jobs/local-analysis":
             self._send(404, {"error": "not found"})
             return
@@ -170,7 +191,9 @@ class Handler(BaseHTTPRequestHandler):
         job_id = str(uuid.uuid4())
         with _jobs_lock:
             _jobs[job_id] = {"job_id": job_id, "status": "queued", "workspace": relative}
-        _executor.submit(_run_job, job_id, relative)
+            cancel_event = threading.Event()
+            _cancel_events[job_id] = cancel_event
+        _executor.submit(_run_job, job_id, relative, cancel_event)
         self._send(202, {"job_id": job_id, "status": "queued"})
 
     def do_OPTIONS(self) -> None:  # noqa: N802
