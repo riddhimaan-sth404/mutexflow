@@ -80,7 +80,8 @@ The initial integration keeps Citadel as a loopback-only sidecar to preserve beh
 - CI covers both Rust projects, Python worker syntax/guard tests, and Avalonia desktop build on Linux and Windows.
 - Added unit tests for loopback URL validation, job ID validation, workspace traversal/symlink rejection, masked secret evidence, and cooperative cancellation.
 - Added a managed-runtime end-to-end test that starts backend-managed Citadel and worker processes, runs a local analysis job, reads agent/finding state, exercises both approval and denial through the backend, and retrieves audit events.
-- Remaining validation includes explicit assertions that child processes exit after shutdown, crash/restart behavior, audit-chain verification/key rotation, and broader lifecycle/security tests.
+- The managed-runtime end-to-end test also sends Ctrl+C to the backend and verifies both sidecar health ports close.
+- Remaining validation includes crash/restart behavior, audit-chain verification/key rotation, and broader lifecycle/security tests.
 - General-purpose autonomous agent spawning, arbitrary tool dispatch, event streaming UI, and autonomous-agent cancellation remain out of scope until the API contract and sandbox model are completed.
 
 ### Phase 7 — Compatibility and rollout
