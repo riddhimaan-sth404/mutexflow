@@ -60,7 +60,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/api/v1/agent/process-standard", post(routes::agent::process_standard))
         .route("/api/v1/integrations/dispatch", post(routes::integrations::dispatch_integrations))
         .route("/api/v1/integrations/status", get(routes::integrations::get_integrations_status))
-        .route("/api/v1/orchestral/health", get(routes::orchestral::health))
+        .nest("/api/v1/orchestral", routes::orchestral::router())
         .layer(cors)
         .layer(TraceLayer::new_for_http())
         .with_state(state);
