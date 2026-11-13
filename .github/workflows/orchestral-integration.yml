@@ -152,5 +152,7 @@ jobs:
 
           hitl_json=$(curl --fail-with-body --silent --show-error -X POST http://127.0.0.1:8088/api/v1/hitl/pending             -H "X-Orchestral-API-Key: $ORCHESTRAL_ADMIN_KEY"             -H "Content-Type: application/json"             -d '{"agent_id":"ci-approval-agent","tool_name":"manual-review","target":"local-workspace","command_preview":"CI approval-gate verification","risk_tier":"active"}')
           approval_id=$(printf '%s' "$hitl_json" | python -c 'import json,sys; print(json.load(sys.stdin)["id"])')
-          curl --fail-with-body --silent --show-error "http://127.0.0.1:3001/api/v1/orchestral/approvals/$approval_id/deny" -X POST             | python -c 'import json,sys; assert json.load(sys.stdin)["status"] == "denied"'
+          deny_json=$(curl --silent --show-error "http://127.0.0.1:3001/api/v1/orchestral/approvals/$approval_id/deny" -X POST)
+          echo "$deny_json"
+          printf '%s' "$deny_json" | python -c 'import json,sys; assert json.load(sys.stdin)["status"] == "denied"'
           curl --fail-with-body --silent --show-error http://127.0.0.1:3001/api/v1/orchestral/audit?limit=20             | python -c 'import json,sys; assert isinstance(json.load(sys.stdin), list)'
