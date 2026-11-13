@@ -357,7 +357,7 @@ public class AgentClientService : IAgentClientService
         try
         {
             using var response = await _http.PostAsJsonAsync(
-                $ "${BackendUrl}/api/v1/orchestral/jobs/local-analysis",
+                "${BackendUrl}/api/v1/orchestral/jobs/local-analysis",
                 new { workspace }, ct);
             var body = await response.Content.ReadFromJsonAsync<JsonObject>(cancellationToken: ct);
             if (response.IsSuccessStatusCode)
