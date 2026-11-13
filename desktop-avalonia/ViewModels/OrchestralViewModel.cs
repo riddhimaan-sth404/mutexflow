@@ -19,6 +19,7 @@ public partial class OrchestralViewModel : ViewModelBase
     [ObservableProperty] private bool _coreHealthy;
     [ObservableProperty] private bool _workerHealthy;
     [ObservableProperty] private bool _isBusy;
+    [ObservableProperty] private string _activeJobId = string.Empty;
 
     public ObservableCollection<OrchestralApproval> PendingApprovals { get; } = new();
     public ObservableCollection<OrchestralAgent> Agents { get; } = new();
@@ -73,6 +74,7 @@ public partial class OrchestralViewModel : ViewModelBase
                 return;
             }
 
+            ActiveJobId = started.JobId;
             JobStatusMessage = $"Analysis queued: {started.JobId}";
             for (var attempt = 0; attempt < 120; attempt++)
             {
@@ -83,12 +85,21 @@ public partial class OrchestralViewModel : ViewModelBase
                 {
                     var count = job?["findings_submitted"]?.GetValue<int>() ?? 0;
                     JobStatusMessage = $"Analysis complete. {count} masked finding(s) recorded in Citadel.";
+                    ActiveJobId = string.Empty;
                     await RefreshAsync();
                     return;
                 }
                 if (status == "failed")
                 {
                     JobStatusMessage = job?["error"]?.GetValue<string>() ?? "Local analysis failed.";
+                    ActiveJobId = string.Empty;
+                    return;
+                }
+                if (status == "cancelled")
+                {
+                    JobStatusMessage = "Local analysis cancelled. Any findings already discovered were retained.";
+                    ActiveJobId = string.Empty;
+                    await RefreshAsync();
                     return;
                 }
                 if (status is not null)
@@ -101,6 +112,16 @@ public partial class OrchestralViewModel : ViewModelBase
         {
             IsBusy = false;
         }
+    }
+
+    [RelayCommand]
+    public async Task CancelLocalAnalysisAsync()
+    {
+        if (string.IsNullOrWhiteSpace(ActiveJobId)) return;
+        var result = await _client.CancelLocalAnalysisAsync(ActiveJobId);
+        JobStatusMessage = result.Ok
+            ? "Cancellation requested. Waiting for the worker to stop..."
+            : $"Cancellation failed: {result.Error}";
     }
 
     [RelayCommand]
