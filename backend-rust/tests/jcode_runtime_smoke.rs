@@ -18,7 +18,7 @@ async fn isolated_jcode_runtime_smoke() {
         .expect("backend has repository parent")
         .to_path_buf();
     let orchestral = Arc::new(OrchestralManager::new(root.clone()));
-    let manager = JcodeManager::new(root, orchestral);
+    let manager = JcodeManager::new(root.clone(), orchestral);
     manager.start().expect("JCode Harness starts in isolated home");
     assert!(manager.status().connected, "Harness API should answer health ping");
 

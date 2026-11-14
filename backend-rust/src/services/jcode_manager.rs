@@ -191,7 +191,6 @@ impl JcodeManager {
         let runtime = self.ensure_client().await?;
         let key = api_key.to_string();
         let provider_owned = provider.to_string();
-        let key_bytes = key.len();
         let audit_available = self.orchestral.status().await.core_healthy;
         if audit_available {
             self.orchestral.record_audit(
@@ -1117,7 +1116,18 @@ impl JcodeManager {
     }
 
     pub async fn sessions(&self) -> Result<Value, String> {
-        let runtime = self.ensure_client().await?;
+        // Status/session refreshes must remain non-blocking while the managed
+        // JCode daemon is starting. Mutating operations call ensure_client().
+        let runtime = self.runtime.lock()
+            .map_err(|_| "JCode runtime state lock poisoned")?
+            .as_ref()
+            .cloned();
+        let Some(runtime) = runtime else {
+            return Ok(json!([]));
+        };
+        if !runtime_is_alive(&runtime) {
+            return Ok(json!([]));
+        }
         tokio::task::spawn_blocking(move || {
             let sessions = runtime.client.list_sessions()
                 .map_err(|e| format!("list JCode sessions: {e}"))?;
