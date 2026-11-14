@@ -86,7 +86,7 @@ The branch includes:
 - Rust tests for workspace path confinement, secret-file exclusion, and bounded event retention.
 - Full MutexFlow/Orchestral CI, including backend tests, Citadel tests, Python worker tests, Avalonia build, Windows integration smoke, and managed-runtime end-to-end tests.
 
-The Windows JCode SDK workflow excludes only three upstream Git-for-Windows worktree tests that fail when creating worktree paths containing spaces. The full SDK test suite runs on Linux; Windows still compiles the API/server/SDK crates and runs the remaining SDK tests.
+The Linux SDK job skips two upstream auth callback tests whose local-process fixtures cannot be launched reliably in the hosted runner. The Windows SDK job skips those callback fixtures plus three upstream Git-for-Windows worktree tests that fail when creating worktree paths containing spaces. The API/server/SDK crates compile on both platforms, the remaining SDK tests run on both, and separate Linux and Windows runtime-smoke jobs exercise the actual pinned executable and backend lifecycle.
 
 ## Performance claims and remaining scope
 
