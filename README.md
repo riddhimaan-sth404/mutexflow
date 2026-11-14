@@ -217,7 +217,7 @@ When the managed runtime is configured, the backend also exposes:
 | `GET` | `/api/v1/jcode/health` | JCode runtime and provider readiness |
 | `GET` | `/api/v1/jcode/sessions` | List JCode sessions |
 | `POST` | `/api/v1/jcode/sessions` | Create a Citadel-registered specialist agent |
-| `POST` | `/api/v1/jcode/sessions/{id}/run` | Run a turn in a selected agent session |
+| `POST` | `/api/v1/jcode/sessions/{id}/run` | Run a turn in a selected agent session; optional `disable_tools: true` makes the turn tool-free |
 | `POST` | `/api/v1/jcode/sessions/{id}/cancel` | Cancel a selected agent session |
 | `POST` | `/api/v1/jcode/swarm` | Start a batch of up to eight concurrent agents |
 | `GET` | `/api/v1/jcode/swarm/{id}` | Read batch status and results |

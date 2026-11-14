@@ -24,7 +24,7 @@ JCode is integrated as the Rust agent-session runtime behind MutexFlow and Orche
 4. Avalonia creates a role-scoped agent session. The backend creates the JCode session with a fixed Orchestral system prompt, configures its custom tool allowlist, and registers the agent in Citadel.
 5. Up to eight independent JCode sessions can run concurrently. The batch API creates/registers each agent with the currently selected specialist role and schedules the turns through a bounded semaphore.
 6. JCode text/tool events are translated into a bounded, sequence-numbered event buffer. Avalonia polls the event endpoint and renders assistant text as it arrives.
-7. Each custom tool request and result is recorded in Citadel's audit chain. If the request audit fails, execution is denied; if the result audit fails, the result is withheld from the model.
+7. Each custom tool request and result is recorded in Citadel's audit chain. If the request audit fails, execution is denied; if the result audit fails, the result is withheld from the model. A run may also explicitly disable tools for a turn, which is used by the benchmark.
 8. Agent completion, failure, and cancellation are reflected in Citadel. The desktop can cancel the selected session.
 
 ## Agent roles

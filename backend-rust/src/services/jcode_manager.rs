@@ -454,11 +454,7 @@ impl JcodeManager {
                 working_dir: Some(workspace_path.to_string_lossy().to_string()),
                 system_prompt,
             }).map_err(|e| format!("create JCode session: {e}"))?;
-            let tools = if citadel_ready {
-                readonly_tool_configuration()
-            } else {
-                ToolConfiguration { enabled: Some(Vec::new()), disabled: Vec::new(), custom: Vec::new() }
-            };
+            let tools = tools_for_turn(citadel_ready, true);
             runtime.client.configure_tools(&session.session_id, tools)
                 .map_err(|e| format!("configure restricted JCode tools: {e}"))?;
             Ok(json!({
@@ -508,11 +504,7 @@ impl JcodeManager {
                 return Err("JCode session workspace is outside the assigned MutexFlow root".into());
             }
             let root = workspace.clone();
-            let tools = if citadel_ready && allow_tools {
-                readonly_tool_configuration()
-            } else {
-                ToolConfiguration { enabled: Some(Vec::new()), disabled: Vec::new(), custom: Vec::new() }
-            };
+            let tools = tools_for_turn(citadel_ready, allow_tools);
             runtime.client.configure_tools(&session_id, tools)
                 .map_err(|e| format!("reconfigure restricted JCode tools: {e}"))?;
             let client_for_tools = runtime.client.clone();
@@ -894,6 +886,14 @@ fn process_exists(pid: i32) -> bool {
     unsafe { libc::kill(pid, 0) == 0 }
 }
 
+fn tools_for_turn(citadel_ready: bool, allow_tools: bool) -> ToolConfiguration {
+    if citadel_ready && allow_tools {
+        readonly_tool_configuration()
+    } else {
+        ToolConfiguration { enabled: Some(Vec::new()), disabled: Vec::new(), custom: Vec::new() }
+    }
+}
+
 fn readonly_tool_configuration() -> ToolConfiguration {
     let read_schema = serde_json::json!({
         "type": "object",
@@ -1120,6 +1120,20 @@ fn validate_relative_workspace(workspace: &str) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tool_policy_never_enables_tools_without_citadel_or_explicit_permission() {
+        let disabled = tools_for_turn(true, false);
+        assert!(disabled.enabled.unwrap_or_default().is_empty());
+        assert!(disabled.custom.is_empty());
+
+        let unavailable = tools_for_turn(false, true);
+        assert!(unavailable.enabled.unwrap_or_default().is_empty());
+        assert!(unavailable.custom.is_empty());
+
+        let allowed = tools_for_turn(true, true);
+        assert_eq!(allowed.custom.len(), 3);
+    }
 
     #[test]
     fn only_fixed_specialist_roles_are_accepted() {
