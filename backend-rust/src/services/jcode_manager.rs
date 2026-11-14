@@ -1029,7 +1029,7 @@ fn validate_relative_workspace(workspace: &str) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    use super::validate_relative_workspace;
+    use super::*;
 
     #[test]
     fn workspace_paths_must_be_relative_and_confined() {
