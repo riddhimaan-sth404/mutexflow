@@ -1125,10 +1125,10 @@ impl JcodeManager {
         let Some(runtime) = runtime else {
             return Ok(json!([]));
         };
-        if !runtime_is_alive(&runtime) {
-            return Ok(json!([]));
-        }
         tokio::task::spawn_blocking(move || {
+            if !runtime_is_alive(&runtime) {
+                return Ok(json!([]));
+            }
             let sessions = runtime.client.list_sessions()
                 .map_err(|e| format!("list JCode sessions: {e}"))?;
             serde_json::to_value(sessions).map_err(|e| format!("serialize JCode sessions: {e}"))
