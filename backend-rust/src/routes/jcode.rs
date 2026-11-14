@@ -16,7 +16,7 @@ struct CreateSessionRequest { workspace: String, role: Option<String>, objective
 struct RunRequest { prompt: String }
 
 #[derive(Deserialize)]
-struct BatchRequest { workspace: String, tasks: Vec<String> }
+struct BatchRequest { workspace: String, role: Option<String>, tasks: Vec<String> }
 
 #[derive(Deserialize)]
 struct EventsQuery { after: Option<u64> }
@@ -71,7 +71,7 @@ async fn run_batch(
     State(state): State<Arc<AppState>>,
     Json(request): Json<BatchRequest>,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<Value>)> {
-    state.jcode.start_batch(&request.workspace, request.tasks).await
+    state.jcode.start_batch(&request.workspace, request.role.as_deref().unwrap_or("workspace_analyst"), request.tasks).await
         .map(|value| (StatusCode::ACCEPTED, Json(value)))
         .map_err(failure)
 }

@@ -37,7 +37,7 @@ public interface IAgentClientService
     Task<List<JsonObject>> GetJcodeEventsAsync(long afterSequence, CancellationToken ct = default);
     Task<(bool Ok, string? Result, string? Error)> RunJcodeSessionAsync(string sessionId, string prompt, CancellationToken ct = default);
     Task<(bool Ok, string? Error)> CancelJcodeSessionAsync(string sessionId, CancellationToken ct = default);
-    Task<(bool Ok, JsonObject? Batch, string? Error)> StartJcodeBatchAsync(string workspace, List<string> tasks, CancellationToken ct = default);
+    Task<(bool Ok, JsonObject? Batch, string? Error)> StartJcodeBatchAsync(string workspace, string role, List<string> tasks, CancellationToken ct = default);
     Task<JsonObject?> GetJcodeBatchAsync(string batchId, CancellationToken ct = default);
     Task<(bool Ok, string? Error)> CancelJcodeBatchAsync(string batchId, CancellationToken ct = default);
 }
@@ -496,12 +496,12 @@ public class AgentClientService : IAgentClientService
 
 
     public async Task<(bool Ok, JsonObject? Batch, string? Error)> StartJcodeBatchAsync(
-        string workspace, List<string> tasks, CancellationToken ct = default)
+        string workspace, string role, List<string> tasks, CancellationToken ct = default)
     {
         try
         {
             using var response = await _http.PostAsJsonAsync(
-                $"{BackendUrl}/api/v1/jcode/swarm", new { workspace, tasks }, ct);
+                $"{BackendUrl}/api/v1/jcode/swarm", new { workspace, role, tasks }, ct);
             var body = await response.Content.ReadFromJsonAsync<JsonObject>(cancellationToken: ct);
             if (response.IsSuccessStatusCode)
                 return (true, body, null);

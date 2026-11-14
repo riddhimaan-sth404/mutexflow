@@ -410,7 +410,13 @@ impl JcodeManager {
             "jcode_agent_created",
             &json!({"role": role, "workspace": workspace, "objective": objective}).to_string(),
         ).await {
-            self.update_agent_status(&session_id, "failed", 0).await;
+            let mut failed_agent = agent.clone();
+            failed_agent["status"] = json!("failed");
+            let _ = self.orchestral.core_post_json("/api/v1/swarm/agents", &failed_agent).await;
+            if let Ok(runtime) = self.client() {
+                let cancel_id = session_id.clone();
+                let _ = tokio::task::spawn_blocking(move || runtime.client.cancel(&cancel_id)).await;
+            }
             return Err(format!("record JCode agent creation in Citadel audit: {error}"));
         }
         self.agents.lock().map_err(|_| "JCode agent registry lock poisoned")?.insert(
@@ -523,7 +529,8 @@ impl JcodeManager {
                             let request_details = json!({
                                 "session_id": tool_session_id,
                                 "tool": tool_name,
-                                "path": relative_path
+                                "path": relative_path,
+                                "arguments": input
                             }).to_string();
                             let audit_ok = audit_runtime.block_on(orchestral.record_audit(
                                 &tool_session_id, "jcode_tool_requested", &request_details
@@ -540,11 +547,18 @@ impl JcodeManager {
                             let result_details = json!({
                                 "session_id": tool_session_id,
                                 "tool": tool_name,
-                                "success": error.is_none()
+                                "success": error.is_none(),
+                                "output_bytes": output.len(),
+                                "error": error.as_deref()
                             }).to_string();
-                            let _ = audit_runtime.block_on(orchestral.record_audit(
+                            let result_audit = audit_runtime.block_on(orchestral.record_audit(
                                 &tool_session_id, "jcode_tool_completed", &result_details
                             ));
+                            let (output, error) = if result_audit.is_err() {
+                                (String::new(), Some("Citadel audit unavailable; tool result withheld".to_string()))
+                            } else {
+                                (output, error)
+                            };
                             if let Err(error) = client_for_tools.submit_tool_result(
                                 &tool_session_id, &tool_call_id, &output, error
                             ) {
@@ -621,6 +635,11 @@ impl JcodeManager {
             });
             if let Err(error) = self.orchestral.core_post_json("/api/v1/swarm/agents", &payload).await {
                 warn!("[JCode] Could not update Citadel agent status: {}", error);
+                return;
+            }
+            let details = json!({ "status": status, "tokens_used": tokens_used }).to_string();
+            if let Err(error) = self.orchestral.record_audit(session_id, "jcode_agent_status_changed", &details).await {
+                warn!("[JCode] Could not audit agent status transition: {}", error);
             }
         }
     }
@@ -641,8 +660,12 @@ impl JcodeManager {
     pub async fn start_batch(
         self: &Arc<Self>,
         workspace: &str,
+        role: &str,
         prompts: Vec<String>,
     ) -> Result<Value, String> {
+        if !matches!(role, "workspace_analyst" | "security_reviewer" | "dependency_reviewer" | "documentation_reviewer") {
+            return Err("unsupported agent role for batch".into());
+        }
         if prompts.is_empty() || prompts.len() > MAX_CONCURRENT_TURNS {
             return Err(format!("batch must contain between 1 and {MAX_CONCURRENT_TURNS} agent tasks"));
         }
@@ -652,7 +675,7 @@ impl JcodeManager {
 
         let mut session_ids: Vec<String> = Vec::with_capacity(prompts.len());
         for prompt in &prompts {
-            let created = match self.create_agent_session(workspace, "workspace_analyst", prompt).await {
+            let created = match self.create_agent_session(workspace, role, prompt).await {
                 Ok(created) => created,
                 Err(error) => {
                     for session_id in &session_ids {
@@ -953,7 +976,7 @@ fn is_sensitive_workspace_path(path: &Path) -> bool {
     }).peekable();
     let parts: Vec<String> = components.by_ref().collect();
     if parts.iter().any(|part| matches!(part.as_str(),
-        ".ssh" | ".aws" | ".gnupg" | ".azure" | ".kube" | "secrets" | "credentials"
+        ".ssh" | ".aws" | ".gnupg" | ".azure" | ".kube" | ".git" | ".hg" | ".svn" | ".mutexflow" | "secrets" | "credentials" | "private"
     )) {
         return true;
     }
@@ -966,7 +989,7 @@ fn is_sensitive_workspace_path(path: &Path) -> bool {
     }
     [".pem", ".key", ".p12", ".pfx", ".p7b", ".p7c", ".kdbx", ".keystore", ".jks"]
         .iter().any(|suffix| name.ends_with(suffix))
-        || matches!(name.as_str(), ".netrc" | ".npmrc" | ".pypirc" | "id_rsa" | "id_ed25519")
+        || matches!(name.as_str(), ".netrc" | ".npmrc" | ".pypirc" | "id_rsa" | "id_ed25519" | "config.json")
 }
 
 fn search_workspace(root: &Path, target: &Path, input: &Value) -> Result<String, String> {
@@ -1072,6 +1095,11 @@ mod tests {
             .expect("search workspace");
         assert!(result.contains("src/main.rs"));
         assert!(!result.contains(".env"));
+        assert!(is_sensitive_workspace_path(Path::new(".git/config")));
+        assert!(is_sensitive_workspace_path(Path::new(".mutexflow/jcode/credentials.json")));
+        assert!(is_sensitive_workspace_path(Path::new(".ssh/id_ed25519")));
+        let blocked = super::execute_readonly_tool(&root, "workspace_read", &serde_json::json!({"path":".env"}));
+        assert!(blocked.is_err());
         let _ = std::fs::remove_dir_all(&root);
     }
 

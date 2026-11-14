@@ -254,7 +254,7 @@ public partial class OrchestralViewModel : ViewModelBase
             var previousEvents = await _client.GetJcodeEventsAsync(0);
             _lastJcodeEventSequence = previousEvents.Count == 0 ? 0 : previousEvents.Max(item => item["sequence"]?.GetValue<long>() ?? 0);
             JcodeStatusMessage = $"Starting {tasks.Length} concurrent JCode agent sessions...";
-            var started = await _client.StartJcodeBatchAsync(JcodeWorkspace.Trim(), tasks.ToList());
+            var started = await _client.StartJcodeBatchAsync(JcodeWorkspace.Trim(), JcodeRole, tasks.ToList());
             if (!started.Ok || started.Batch is null)
             {
                 JcodeStatusMessage = started.Error ?? "Could not start the JCode agent batch.";

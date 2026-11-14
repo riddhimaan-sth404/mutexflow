@@ -22,9 +22,9 @@ JCode is integrated as the Rust agent-session runtime behind MutexFlow and Orche
 2. Only the explicitly configured `JCODE_PROVIDER` and `JCODE_MODEL` settings are passed to the child. Provider API keys are not inherited in its environment.
 3. The backend provisions provider keys through `JcodeClient::set_api_key`; JCode persists them in its owner-only credential store. Supported key providers are OpenAI, Anthropic, OpenRouter, and Gemini.
 4. Avalonia creates a role-scoped agent session. The backend creates the JCode session with a fixed Orchestral system prompt, configures its custom tool allowlist, and registers the agent in Citadel.
-5. Up to eight independent JCode sessions can run concurrently. The batch API creates/registers each agent and schedules the turns through a bounded semaphore.
+5. Up to eight independent JCode sessions can run concurrently. The batch API creates/registers each agent with the currently selected specialist role and schedules the turns through a bounded semaphore.
 6. JCode text/tool events are translated into a bounded, sequence-numbered event buffer. Avalonia polls the event endpoint and renders assistant text as it arrives.
-7. Each custom tool call must first be recorded in Citadel's audit chain. If the audit write fails, the tool call is denied. The result is also recorded.
+7. Each custom tool request and result is recorded in Citadel's audit chain. If the request audit fails, execution is denied; if the result audit fails, the result is withheld from the model.
 8. Agent completion, failure, and cancellation are reflected in Citadel. The desktop can cancel the selected session.
 
 ## Agent roles
@@ -46,7 +46,7 @@ JCode built-in tools are disabled. The only custom tools exposed to sessions are
 - `workspace_list`: immediate directory entries, capped at 200.
 - `workspace_search`: literal text search, capped at 1,000 files, 200 matches, and 1 MiB per file.
 
-All tools are read-only and run in the MutexFlow backend, not inside the JCode process. They enforce relative paths, canonical workspace-root containment, symlink rejection, and exclusions for common credential files/directories. The search tool skips generated/dependency directories such as `.git`, `target`, `node_modules`, `.venv`, and `vendor`.
+All tools are read-only and run in the MutexFlow backend, not inside the JCode process. They enforce relative paths, canonical workspace-root containment, symlink rejection, and exclusions for common credential files/directories, VCS metadata, and MutexFlow runtime state. The search tool skips generated/dependency directories such as `.git`, `target`, `node_modules`, `.venv`, and `vendor`.
 
 Shell/process execution, file writes, network access, MCP, self-development, active port scanning, HTTP probing, and Kali terminal tools are not exposed. These capabilities must not be enabled by bypassing the backend adapter. They require a separately reviewed sandbox, explicit target authorization, Citadel policy evaluation, approval, and audit design.
 
