@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
@@ -55,6 +56,72 @@ public class AgentClientService : IAgentClientService
         var savedUrl = _storage.GetSecret("backend_url");
         if (!string.IsNullOrWhiteSpace(savedUrl))
             BackendUrl = savedUrl;
+    }
+
+    private string? _localApiToken;
+
+    /// <summary>
+    /// Resolves the local backend API token required by the orchestral/JCode
+    /// routes. The backend generates a token on first run and persists it
+    /// owner-only at .mutexflow/backend-token; MUTEXFLOW_API_TOKEN overrides
+    /// the file. The token is attached per request so it is never leaked to
+    /// non-backend hosts via default headers.
+    /// </summary>
+    private string? GetLocalApiToken()
+    {
+        if (!string.IsNullOrWhiteSpace(_localApiToken))
+            return _localApiToken;
+
+        var env = Environment.GetEnvironmentVariable("MUTEXFLOW_API_TOKEN");
+        if (!string.IsNullOrWhiteSpace(env))
+        {
+            _localApiToken = env.Trim();
+            return _localApiToken;
+        }
+
+        try
+        {
+            foreach (var dir in new[] { Environment.CurrentDirectory, AppContext.BaseDirectory })
+            {
+                if (string.IsNullOrWhiteSpace(dir)) continue;
+                var candidate = Path.Combine(dir, ".mutexflow", "backend-token");
+                if (!File.Exists(candidate)) continue;
+                var value = File.ReadAllText(candidate).Trim();
+                if (!string.IsNullOrWhiteSpace(value))
+                {
+                    _localApiToken = value;
+                    return _localApiToken;
+                }
+            }
+        }
+        catch
+        {
+            // Leave the token unset; the backend rejects unauthenticated
+            // orchestral/JCode calls with 401 and the UI surfaces the error.
+        }
+
+        return _localApiToken;
+    }
+
+    private Task<HttpResponseMessage> GetWithLocalTokenAsync(string url, CancellationToken ct)
+        => SendWithLocalTokenAsync(new HttpRequestMessage(HttpMethod.Get, url), ct);
+
+    private Task<HttpResponseMessage> PostWithLocalTokenAsync(string url, HttpContent? content, CancellationToken ct)
+        => SendWithLocalTokenAsync(new HttpRequestMessage(HttpMethod.Post, url) { Content = content }, ct);
+
+    private async Task<HttpResponseMessage> SendWithLocalTokenAsync(HttpRequestMessage request, CancellationToken ct)
+    {
+        var token = GetLocalApiToken();
+        if (!string.IsNullOrWhiteSpace(token))
+            request.Headers.Add("X-MutexFlow-Token", token);
+        try
+        {
+            return await _http.SendAsync(request, ct);
+        }
+        finally
+        {
+            request.Dispose();
+        }
     }
 
     public async Task<(bool Ok, string? Error)> VerifyLicenseAsync(string licenseKey, string machineId, CancellationToken ct = default)
@@ -302,7 +369,7 @@ public class AgentClientService : IAgentClientService
     {
         try
         {
-            using var response = await _http.GetAsync($"{BackendUrl}/api/v1/orchestral/{path}", ct);
+            using var response = await GetWithLocalTokenAsync($"{BackendUrl}/api/v1/orchestral/{path}", ct);
             if (!response.IsSuccessStatusCode) return null;
             return await response.Content.ReadFromJsonAsync<JsonArray>(cancellationToken: ct);
         }
@@ -316,7 +383,7 @@ public class AgentClientService : IAgentClientService
     {
         try
         {
-            using var response = await _http.GetAsync($"{BackendUrl}/api/v1/orchestral/status", ct);
+            using var response = await GetWithLocalTokenAsync($"{BackendUrl}/api/v1/orchestral/status", ct);
             if (!response.IsSuccessStatusCode) return null;
             return await response.Content.ReadFromJsonAsync<JsonObject>(cancellationToken: ct);
         }
@@ -352,7 +419,7 @@ public class AgentClientService : IAgentClientService
     {
         try
         {
-            using var response = await _http.PostAsync(
+            using var response = await PostWithLocalTokenAsync(
                 $"{BackendUrl}/api/v1/orchestral/approvals/{Uri.EscapeDataString(id)}/{(approve ? "approve" : "deny")}",
                 content: null, ct);
             if (response.IsSuccessStatusCode) return (true, null);
@@ -367,9 +434,9 @@ public class AgentClientService : IAgentClientService
     {
         try
         {
-            using var response = await _http.PostAsJsonAsync(
+            using var response = await PostWithLocalTokenAsync(
                 $"{BackendUrl}/api/v1/orchestral/jobs/local-analysis",
-                new { workspace }, ct);
+                content: JsonContent.Create(new { workspace }), ct);
             var body = await response.Content.ReadFromJsonAsync<JsonObject>(cancellationToken: ct);
             if (response.IsSuccessStatusCode)
                 return (true, body?["job_id"]?.GetValue<string>(), null);
@@ -382,7 +449,7 @@ public class AgentClientService : IAgentClientService
     {
         try
         {
-            using var response = await _http.PostAsync(
+            using var response = await PostWithLocalTokenAsync(
                 $"{BackendUrl}/api/v1/orchestral/jobs/{Uri.EscapeDataString(jobId)}/cancel",
                 content: null, ct);
             if (response.IsSuccessStatusCode) return (true, null);
@@ -396,7 +463,7 @@ public class AgentClientService : IAgentClientService
     {
         try
         {
-            using var response = await _http.GetAsync(
+            using var response = await GetWithLocalTokenAsync(
                 $"{BackendUrl}/api/v1/orchestral/jobs/{Uri.EscapeDataString(jobId)}", ct);
             if (!response.IsSuccessStatusCode) return null;
             return await response.Content.ReadFromJsonAsync<JsonObject>(cancellationToken: ct);
@@ -408,7 +475,7 @@ public class AgentClientService : IAgentClientService
     {
         try
         {
-            using var response = await _http.GetAsync($"{BackendUrl}/api/v1/jcode/health", ct);
+            using var response = await GetWithLocalTokenAsync($"{BackendUrl}/api/v1/jcode/health", ct);
             if (!response.IsSuccessStatusCode) return null;
             return await response.Content.ReadFromJsonAsync<JsonObject>(cancellationToken: ct);
         }
@@ -420,7 +487,7 @@ public class AgentClientService : IAgentClientService
     {
         try
         {
-            using var response = await _http.GetAsync($"{BackendUrl}/api/v1/jcode/sessions", ct);
+            using var response = await GetWithLocalTokenAsync($"{BackendUrl}/api/v1/jcode/sessions", ct);
             if (!response.IsSuccessStatusCode) return new List<string>();
             var sessions = await response.Content.ReadFromJsonAsync<JsonArray>(cancellationToken: ct);
             return sessions?.Select(item => item?["session_id"]?.GetValue<string>())
@@ -436,8 +503,9 @@ public class AgentClientService : IAgentClientService
     {
         try
         {
-            using var response = await _http.PostAsJsonAsync(
-                $"{BackendUrl}/api/v1/jcode/sessions", new { workspace, role, objective }, ct);
+            using var response = await PostWithLocalTokenAsync(
+                $"{BackendUrl}/api/v1/jcode/sessions",
+                content: JsonContent.Create(new { workspace, role, objective }), ct);
             var body = await response.Content.ReadFromJsonAsync<JsonObject>(cancellationToken: ct);
             if (response.IsSuccessStatusCode)
                 return (true, body?["session_id"]?.GetValue<string>(), null);
@@ -450,7 +518,7 @@ public class AgentClientService : IAgentClientService
     {
         try
         {
-            using var response = await _http.GetAsync(
+            using var response = await GetWithLocalTokenAsync(
                 $"{BackendUrl}/api/v1/jcode/events?after={afterSequence}", ct);
             if (!response.IsSuccessStatusCode) return new List<JsonObject>();
             var body = await response.Content.ReadFromJsonAsync<JsonObject>(cancellationToken: ct);
@@ -468,9 +536,9 @@ public class AgentClientService : IAgentClientService
     {
         try
         {
-            using var response = await _http.PostAsJsonAsync(
+            using var response = await PostWithLocalTokenAsync(
                 $"{BackendUrl}/api/v1/jcode/sessions/{Uri.EscapeDataString(sessionId)}/run",
-                new { prompt }, ct);
+                content: JsonContent.Create(new { prompt }), ct);
             var body = await response.Content.ReadFromJsonAsync<JsonObject>(cancellationToken: ct);
             if (response.IsSuccessStatusCode)
                 return (true, body?["text"]?.GetValue<string>() ?? string.Empty, null);
@@ -484,7 +552,7 @@ public class AgentClientService : IAgentClientService
     {
         try
         {
-            using var response = await _http.PostAsync(
+            using var response = await PostWithLocalTokenAsync(
                 $"{BackendUrl}/api/v1/jcode/sessions/{Uri.EscapeDataString(sessionId)}/cancel",
                 content: null, ct);
             if (response.IsSuccessStatusCode) return (true, null);
@@ -500,8 +568,9 @@ public class AgentClientService : IAgentClientService
     {
         try
         {
-            using var response = await _http.PostAsJsonAsync(
-                $"{BackendUrl}/api/v1/jcode/swarm", new { workspace, role, tasks }, ct);
+            using var response = await PostWithLocalTokenAsync(
+                $"{BackendUrl}/api/v1/jcode/swarm",
+                content: JsonContent.Create(new { workspace, role, tasks }), ct);
             var body = await response.Content.ReadFromJsonAsync<JsonObject>(cancellationToken: ct);
             if (response.IsSuccessStatusCode)
                 return (true, body, null);
@@ -514,7 +583,7 @@ public class AgentClientService : IAgentClientService
     {
         try
         {
-            using var response = await _http.GetAsync(
+            using var response = await GetWithLocalTokenAsync(
                 $"{BackendUrl}/api/v1/jcode/swarm/{Uri.EscapeDataString(batchId)}", ct);
             if (!response.IsSuccessStatusCode) return null;
             return await response.Content.ReadFromJsonAsync<JsonObject>(cancellationToken: ct);
@@ -526,7 +595,7 @@ public class AgentClientService : IAgentClientService
     {
         try
         {
-            using var response = await _http.PostAsync(
+            using var response = await PostWithLocalTokenAsync(
                 $"{BackendUrl}/api/v1/jcode/swarm/{Uri.EscapeDataString(batchId)}/cancel", content: null, ct);
             if (response.IsSuccessStatusCode) return (true, null);
             var error = await response.Content.ReadAsStringAsync(ct);

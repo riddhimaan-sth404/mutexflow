@@ -147,7 +147,7 @@ Never commit `.env` files, API keys, OAuth secrets, or service-role credentials.
 
 #### Optional Orchestral + JCode agents
 
-To enable the managed Orchestral runtime, configure `ORCHESTRAL_ADMIN_KEY`, a stable `ORCHESTRAL_JWT_SECRET`, and `ORCHESTRAL_AUTOSTART=true`. Install a JCode executable built from the pinned upstream revision documented in [JCODE_INTEGRATION.md](JCODE_INTEGRATION.md), then set `JCODE_AUTOSTART=true` and `JCODE_BINARY` to its absolute path. Configure one of `JCODE_OPENAI_API_KEY`, `JCODE_ANTHROPIC_API_KEY`, `JCODE_OPENROUTER_API_KEY`, or `JCODE_GEMINI_API_KEY`; optionally set `JCODE_PROVIDER` and `JCODE_MODEL`. JCode remains disabled unless explicitly enabled and the backend binds to loopback. The Avalonia Orchestral dashboard exposes role-scoped sessions, live output, concurrent batches (up to eight agents), and cancellation. The agents are restricted to audited, read-only workspace tools.
+To enable the managed Orchestral runtime, configure `ORCHESTRAL_ADMIN_KEY`, a stable `ORCHESTRAL_JWT_SECRET`, and `ORCHESTRAL_AUTOSTART=true`. Install a JCode executable built from the pinned upstream revision documented in [JCODE_INTEGRATION.md](JCODE_INTEGRATION.md), then set `JCODE_AUTOSTART=true` and `JCODE_BINARY` to its absolute path. Configure one of `JCODE_OPENAI_API_KEY`, `JCODE_ANTHROPIC_API_KEY`, `JCODE_OPENROUTER_API_KEY`, or `JCODE_GEMINI_API_KEY`; optionally set `JCODE_PROVIDER` and `JCODE_MODEL`. JCode remains disabled unless explicitly enabled and the backend binds to loopback. The `/api/v1/orchestral/*` and `/api/v1/jcode/*` routes additionally require a local API token: the backend generates one on first run, persists it owner-only at `.mutexflow/backend-token`, and clients send it as the `X-MutexFlow-Token` header (set `MUTEXFLOW_API_TOKEN` to supply your own). See [SECURITY.md](SECURITY.md). The Avalonia Orchestral dashboard exposes role-scoped sessions, live output, concurrent batches (up to eight agents), and cancellation. The agents are restricted to audited, read-only workspace tools.
 
 ### 3. Run the application on Windows
 
@@ -268,6 +268,7 @@ Use the exact variable names in `.env.example`; do not place secrets in source c
 MutexFlow is under development and should not be treated as production-hardened.
 
 - The backend binds to loopback by default (`BIND_ADDR=127.0.0.1`) and restricts browser CORS origins to loopback. Do not change the bind address or expose local control endpoints to an untrusted network without a separate authentication and threat-model review.
+- The `/api/v1/orchestral/*` and `/api/v1/jcode/*` routes require the `X-MutexFlow-Token` header (see [SECURITY.md](SECURITY.md)). The desktop client attaches it automatically from `MUTEXFLOW_API_TOKEN` or `.mutexflow/backend-token`. The vendored offensive tooling (Kali terminal, port scanner, HTTP probe, swarm coordinator) is dormant and requires an explicit `MUTEXFLOW_ENABLE_EXTENDED_TOOLS=1` opt-in.
 - Keep Supabase service-role keys, provider API keys, OAuth client secrets, and integration tokens private.
 - In the current desktop storage implementation, Windows secrets use DPAPI for the current user. The non-Windows fallback writes secret values as ordinary files; do not assume equivalent at-rest protection on Linux or macOS.
 - Review license verification and offline behavior before relying on licensing as an enforcement boundary.
@@ -312,6 +313,7 @@ The MutexFlow backend can manage the Orchestral Citadel and the restricted local
 1. Copy `backend-rust/.env.example` to `backend-rust/.env`.
 2. Generate a private random admin key locally (for example, with `openssl rand -hex 32`) and set it as `ORCHESTRAL_ADMIN_KEY`. Do not commit the real `.env` file.
 3. Set a stable, random `ORCHESTRAL_JWT_SECRET` for agent-token continuity across Citadel restarts.
+3. Optionally set `MUTEXFLOW_API_TOKEN` and `MUTEXFLOW_WORKER_TOKEN` yourself; otherwise the backend generates both from an OS PRNG and stores the API token owner-only at `.mutexflow/backend-token`. The worker token is a restricted credential that can only submit findings through the backend proxy; it never carries the Citadel admin key.
 4. Install Rust/Cargo and Python 3.10 or newer. The restricted worker uses the Python standard library plus the vendored Orchestral worker modules.
 5. Start MutexFlow with `run.bat` on Windows or launch the Rust backend from `backend-rust/` on other platforms.
 

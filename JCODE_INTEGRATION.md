@@ -48,7 +48,7 @@ JCode built-in tools are disabled. The only custom tools exposed to sessions are
 
 All tools are read-only and run in the MutexFlow backend, not inside the JCode process. They enforce relative paths, canonical workspace-root containment, symlink rejection, and exclusions for common credential files/directories, VCS metadata, and MutexFlow runtime state. Common API-key/password/secret assignments, bearer tokens, provider-token formats, and PEM private-key blocks are redacted from file contents and search previews before they reach the model. Audit records retain tool names, paths, and query lengths rather than storing search query text. The search tool skips generated/dependency directories such as `.git`, `target`, `node_modules`, `.venv`, and `vendor`.
 
-Shell/process execution, file writes, network access, MCP, self-development, active port scanning, HTTP probing, and Kali terminal tools are not exposed. These capabilities must not be enabled by bypassing the backend adapter. They require a separately reviewed sandbox, explicit target authorization, Citadel policy evaluation, approval, and audit design.
+Shell/process execution, file writes, network access, MCP, self-development, active port scanning, HTTP probing, and Kali terminal tools are not exposed. These modules remain vendored but dormant: the worker's tool registry ships only the passive secret scanner, and the extended tools are registered only when the operator explicitly sets `MUTEXFLOW_ENABLE_EXTENDED_TOOLS=1`. They require a separately reviewed sandbox, explicit target authorization, Citadel policy evaluation, approval, and audit design. See [SECURITY.md](SECURITY.md).
 
 ## Lifecycle and failure behavior
 
@@ -70,6 +70,7 @@ Copy `backend-rust/.env.example` to `backend-rust/.env` and set:
 - `JCODE_BINARY=/path/to/jcode` (or the Windows executable path)
 - `ORCHESTRAL_ADMIN_KEY` and `ORCHESTRAL_JWT_SECRET` for the managed Citadel runtime
 - One provider key: `JCODE_OPENAI_API_KEY`, `JCODE_ANTHROPIC_API_KEY`, `JCODE_OPENROUTER_API_KEY`, or `JCODE_GEMINI_API_KEY`
+- `MUTEXFLOW_API_TOKEN` if you want to choose the local API token yourself; otherwise the backend generates one and stores it owner-only at `.mutexflow/backend-token`. Clients must send it as `X-MutexFlow-Token` on `/api/v1/orchestral/*` and `/api/v1/jcode/*` routes.
 
 Optional `JCODE_PROVIDER` and `JCODE_MODEL` select the preferred provider/model. API-key provider identifiers are `openai-api`, `anthropic-api` (also accepted internally as `claude-api`), `openrouter`, and `gemini`; the backend infers the matching identifier when omitted. If no explicit provider is set, the backend infers one from configured keys in the order OpenAI, Anthropic, OpenRouter, Gemini. Existing `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `OPENROUTER_API_KEY`, and `GEMINI_API_KEY` variables are also accepted as provider-key sources.
 
