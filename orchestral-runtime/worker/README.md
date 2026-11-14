@@ -1,5 +1,12 @@
 # orchestral-worker
 
+> **MutexFlow integration boundary:** the managed worker registers only
+> `NativeSecretScannerTool` for passive local workspace analysis. The other
+> tools described below are upstream modules and are not exposed by the
+> MutexFlow API; the standalone swarm entry point is disabled. No environment
+> variable enables network probes or shell execution.
+
+
 Python runtime for the Orchestral / Orchestral platform. It provides the
 agent execution loop, deterministic guardrails, security tools, the coordinated
 swarm, the supervisor, the terminal monitor, and the MCP stdio server.
