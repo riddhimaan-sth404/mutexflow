@@ -24,6 +24,9 @@ public partial class OrchestralViewModel : ViewModelBase
     [ObservableProperty] private string _jcodeStatusMessage = "Checking JCode runtime...";
     [ObservableProperty] private string _jcodeWorkspace = ".";
     [ObservableProperty] private string _jcodeRole = "workspace_analyst";
+    [ObservableProperty] private string _jcodeProvider = "openai-api";
+    [ObservableProperty] private string _jcodeApiKey = string.Empty;
+    [ObservableProperty] private string _jcodeProviderMessage = "Configure an API provider to enable model turns.";
     [ObservableProperty] private string _jcodeObjective = "Review this workspace and report evidence-backed engineering observations.";
     private long _lastJcodeEventSequence;
     [ObservableProperty] private string _jcodePrompt = string.Empty;
@@ -41,6 +44,7 @@ public partial class OrchestralViewModel : ViewModelBase
     public ObservableCollection<OrchestralAuditEntry> AuditEntries { get; } = new();
     public ObservableCollection<string> JcodeSessions { get; } = new();
     public ObservableCollection<string> JcodeRoles { get; } = new() { "workspace_analyst", "security_reviewer", "dependency_reviewer", "documentation_reviewer" };
+    public ObservableCollection<string> JcodeProviders { get; } = new() { "openai-api", "claude-api", "openrouter", "gemini" };
 
     public OrchestralViewModel(IAgentClientService client)
     {
@@ -85,6 +89,31 @@ public partial class OrchestralViewModel : ViewModelBase
         Replace(Agents, await agentsTask);
         Replace(Findings, await findingsTask);
         Replace(AuditEntries, await auditTask);
+    }
+
+    [RelayCommand]
+    public async Task ConfigureJcodeProviderAsync()
+    {
+        if (string.IsNullOrWhiteSpace(JcodeApiKey)) return;
+        var result = await _client.ConfigureJcodeProviderAsync(JcodeProvider, JcodeApiKey);
+        if (!result.Ok)
+        {
+            JcodeProviderMessage = $"Provider setup failed: {result.Error}";
+            return;
+        }
+        JcodeApiKey = string.Empty;
+        JcodeProviderMessage = $"Saved {JcodeProvider} credentials in JCode's protected provider store.";
+        await RefreshAsync();
+    }
+
+    [RelayCommand]
+    public async Task ClearJcodeProviderAsync()
+    {
+        var result = await _client.ClearJcodeProviderAsync(JcodeProvider);
+        JcodeProviderMessage = result.Ok
+            ? $"Cleared stored credentials for {JcodeProvider}."
+            : $"Could not clear provider credentials: {result.Error}";
+        await RefreshAsync();
     }
 
     [RelayCommand]

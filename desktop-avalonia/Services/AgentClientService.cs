@@ -33,6 +33,8 @@ public interface IAgentClientService
     Task<JsonObject?> GetLocalAnalysisJobAsync(string jobId, CancellationToken ct = default);
     Task<(bool Ok, string? Error)> CancelLocalAnalysisAsync(string jobId, CancellationToken ct = default);
     Task<JsonObject?> GetJcodeStatusAsync(CancellationToken ct = default);
+    Task<(bool Ok, string? Error)> ConfigureJcodeProviderAsync(string provider, string apiKey, CancellationToken ct = default);
+    Task<(bool Ok, string? Error)> ClearJcodeProviderAsync(string provider, CancellationToken ct = default);
     Task<List<string>> GetJcodeSessionsAsync(CancellationToken ct = default);
     Task<(bool Ok, string? SessionId, string? Error)> CreateJcodeSessionAsync(string workspace, string role, string objective, CancellationToken ct = default);
     Task<List<JsonObject>> GetJcodeEventsAsync(long afterSequence, CancellationToken ct = default);
@@ -488,6 +490,36 @@ public class AgentClientService : IAgentClientService
             return await response.Content.ReadFromJsonAsync<JsonObject>(cancellationToken: ct);
         }
         catch { return null; }
+    }
+
+    public async Task<(bool Ok, string? Error)> ConfigureJcodeProviderAsync(string provider, string apiKey, CancellationToken ct = default)
+    {
+        try
+        {
+            using var response = await PostWithLocalTokenAsync(
+                $"{BackendUrl}/api/v1/jcode/provider",
+                JsonContent.Create(new { provider, api_key = apiKey }), ct);
+            var body = await response.Content.ReadFromJsonAsync<JsonObject>(cancellationToken: ct);
+            return response.IsSuccessStatusCode
+                ? (true, null)
+                : (false, body?["error"]?.GetValue<string>() ?? $"HTTP {response.StatusCode}");
+        }
+        catch (Exception error) { return (false, error.Message); }
+    }
+
+    public async Task<(bool Ok, string? Error)> ClearJcodeProviderAsync(string provider, CancellationToken ct = default)
+    {
+        try
+        {
+            using var response = await PostWithLocalTokenAsync(
+                $"{BackendUrl}/api/v1/jcode/provider/clear",
+                JsonContent.Create(new { provider }), ct);
+            var body = await response.Content.ReadFromJsonAsync<JsonObject>(cancellationToken: ct);
+            return response.IsSuccessStatusCode
+                ? (true, null)
+                : (false, body?["error"]?.GetValue<string>() ?? $"HTTP {response.StatusCode}");
+        }
+        catch (Exception error) { return (false, error.Message); }
     }
 
     public async Task<JsonObject?> GetJcodeStatusAsync(CancellationToken ct = default)

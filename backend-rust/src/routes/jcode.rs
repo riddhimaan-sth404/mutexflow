@@ -19,6 +19,12 @@ struct RunRequest { prompt: String, disable_tools: Option<bool> }
 struct BatchRequest { workspace: String, role: Option<String>, tasks: Vec<String> }
 
 #[derive(Deserialize)]
+struct ProviderRequest { provider: String, api_key: String }
+
+#[derive(Deserialize)]
+struct ClearProviderRequest { provider: String }
+
+#[derive(Deserialize)]
 struct EventsQuery { after: Option<u64> }
 
 fn failure(message: String) -> (StatusCode, Json<Value>) {
@@ -35,6 +41,26 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/swarm/:id/cancel", post(cancel_batch))
         .route("/sessions/:id/run", post(run))
         .route("/sessions/:id/cancel", post(cancel))
+        .route("/provider", post(configure_provider))
+        .route("/provider/clear", post(clear_provider))
+}
+
+async fn configure_provider(
+    State(state): State<Arc<AppState>>,
+    Json(request): Json<ProviderRequest>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    state.jcode.configure_provider(&request.provider, &request.api_key).await
+        .map(Json)
+        .map_err(failure)
+}
+
+async fn clear_provider(
+    State(state): State<Arc<AppState>>,
+    Json(request): Json<ClearProviderRequest>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    state.jcode.clear_provider(&request.provider).await
+        .map(Json)
+        .map_err(failure)
 }
 
 async fn health(State(state): State<Arc<AppState>>) -> Json<crate::services::jcode_manager::JcodeStatus> {

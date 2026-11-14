@@ -182,6 +182,77 @@ impl JcodeManager {
         }
     }
 
+    pub async fn configure_provider(&self, provider: &str, api_key: &str) -> Result<Value, String> {
+        let provider = normalize_api_key_provider(provider)
+            .ok_or_else(|| "unsupported provider; choose OpenAI API, Anthropic API, OpenRouter, or Gemini API".to_string())?;
+        validate_provider_key(api_key)?;
+        let runtime = self.ensure_client().await?;
+        let key = api_key.to_string();
+        let provider_owned = provider.to_string();
+        let key_bytes = key.len();
+        let audit_available = self.orchestral.status().await.core_healthy;
+        if audit_available {
+            self.orchestral.record_audit(
+                "mutexflow-jcode",
+                "jcode_provider_key_requested",
+                &json!({"provider": provider, "key_bytes": key_bytes}).to_string(),
+            ).await?;
+        }
+        tokio::task::spawn_blocking(move || runtime.client.set_api_key(&provider_owned, &key))
+            .await
+            .map_err(|error| format!("JCode provider configuration task failed: {error}"))?
+            .map_err(|error| format!("JCode rejected provider credentials: {error}"))?;
+        {
+            let mut configured = self.configured_providers.lock()
+                .map_err(|_| "JCode provider state lock poisoned")?;
+            if !configured.iter().any(|value| normalize_api_key_provider(value) == Some(provider)) {
+                configured.push(provider.to_string());
+            }
+        }
+        let audit_recorded = if audit_available {
+            self.orchestral.record_audit(
+                "mutexflow-jcode",
+                "jcode_provider_key_configured",
+                &json!({"provider": provider, "key_bytes": key_bytes}).to_string(),
+            ).await.is_ok()
+        } else {
+            false
+        };
+        Ok(json!({"provider": provider, "configured": true, "audit_recorded": audit_recorded}))
+    }
+
+    pub async fn clear_provider(&self, provider: &str) -> Result<Value, String> {
+        let provider = normalize_api_key_provider(provider)
+            .ok_or_else(|| "unsupported provider; choose OpenAI API, Anthropic API, OpenRouter, or Gemini API".to_string())?;
+        let runtime = self.ensure_client().await?;
+        let provider_owned = provider.to_string();
+        let audit_available = self.orchestral.status().await.core_healthy;
+        if audit_available {
+            self.orchestral.record_audit(
+                "mutexflow-jcode",
+                "jcode_provider_key_clear_requested",
+                &json!({"provider": provider}).to_string(),
+            ).await?;
+        }
+        tokio::task::spawn_blocking(move || runtime.client.clear_api_key(&provider_owned))
+            .await
+            .map_err(|error| format!("JCode provider removal task failed: {error}"))?
+            .map_err(|error| format!("JCode could not clear provider credentials: {error}"))?;
+        self.configured_providers.lock()
+            .map_err(|_| "JCode provider state lock poisoned")?
+            .retain(|value| normalize_api_key_provider(value) != Some(provider));
+        let audit_recorded = if audit_available {
+            self.orchestral.record_audit(
+                "mutexflow-jcode",
+                "jcode_provider_key_cleared",
+                &json!({"provider": provider}).to_string(),
+            ).await.is_ok()
+        } else {
+            false
+        };
+        Ok(json!({"provider": provider, "configured": false, "audit_recorded": audit_recorded}))
+    }
+
     pub fn start(&self) -> Result<(), String> {
         if !self.enabled {
             return Ok(());
@@ -210,7 +281,7 @@ impl JcodeManager {
 
         let requested_provider = std::env::var("JCODE_PROVIDER").ok().filter(|value| !value.trim().is_empty());
         if let Some(provider) = requested_provider.as_deref() {
-            if !matches!(provider, "openai-api" | "anthropic-api" | "claude-api" | "openrouter" | "gemini") {
+            if normalize_api_key_provider(provider).is_none() {
                 return Err("JCODE_PROVIDER must be one of openai-api, anthropic-api (claude-api), openrouter, or gemini".into());
             }
         }
@@ -1016,11 +1087,32 @@ fn resolve_workspace(root: &Path, relative: &str) -> Result<PathBuf, String> {
     Ok(workspace)
 }
 
+fn normalize_api_key_provider(provider: &str) -> Option<&'static str> {
+    match provider.trim().to_ascii_lowercase().as_str() {
+        "openai-api" => Some("openai-api"),
+        "anthropic-api" | "claude-api" => Some("claude-api"),
+        "openrouter" => Some("openrouter"),
+        "gemini" | "gemini-api" => Some("gemini"),
+        _ => None,
+    }
+}
+
+fn validate_provider_key(api_key: &str) -> Result<(), String> {
+    if api_key.trim().is_empty() || api_key.trim() != api_key {
+        return Err("API key must be non-empty and contain no surrounding whitespace".into());
+    }
+    if api_key.len() > 8192 || api_key.contains(['\n', '\r', '\0']) {
+        return Err("API key must be a single line of at most 8192 bytes".into());
+    }
+    Ok(())
+}
+
 fn provider_is_configured(selected: Option<&str>, configured: &[String]) -> bool {
     match selected {
         Some("anthropic-api" | "claude-api") => configured.iter().any(|provider| {
             provider == "anthropic-api" || provider == "claude-api"
         }),
+        Some("gemini" | "gemini-api") => configured.iter().any(|value| value == "gemini" || value == "gemini-api"),
         Some(provider) => configured.iter().any(|configured| configured == provider),
         None => !configured.is_empty(),
     }
@@ -1465,6 +1557,17 @@ mod tests {
         assert!(!result.contains(".git"));
         assert!(!result.contains(".mutexflow"));
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn provider_key_input_is_validated_without_logging_secret_material() {
+        assert_eq!(normalize_api_key_provider("anthropic-api"), Some("claude-api"));
+        assert_eq!(normalize_api_key_provider("gemini-api"), Some("gemini"));
+        assert_eq!(normalize_api_key_provider("unknown"), None);
+        assert!(validate_provider_key("sk-test-secret").is_ok());
+        assert!(validate_provider_key(" ").is_err());
+        assert!(validate_provider_key(" sk-test-secret").is_err());
+        assert!(validate_provider_key("sk-test\\nsecret").is_err());
     }
 
     #[test]

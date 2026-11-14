@@ -45,7 +45,16 @@
           <TextBlock Text="JCode concurrent agent runtime" FontSize="16" FontWeight="SemiBold" Foreground="{StaticResource TextMain}" />
           <TextBlock Text="{Binding JcodeStatusMessage}" TextWrapping="Wrap" FontSize="12" Foreground="{StaticResource TextMuted}" />
           <TextBlock Text="JCode supplies the Rust agent runtime. Citadel registers each agent and records every tool invocation in its audit chain. Agents receive only confined, read-only workspace tools; shell, write, network, and MCP tools remain disabled." TextWrapping="Wrap" FontSize="12" Foreground="{StaticResource TextMuted}" />
-          <TextBlock Text="Provider keys: set JCODE_OPENAI_API_KEY, JCODE_ANTHROPIC_API_KEY, JCODE_OPENROUTER_API_KEY, or JCODE_GEMINI_API_KEY in the backend environment. Keys are provisioned through the SDK into JCode's owner-only credential store." TextWrapping="Wrap" FontSize="12" Foreground="{StaticResource TextMuted}" />
+          <TextBlock Text="Configure provider credentials here. Keys are sent only to the loopback backend and persisted by JCode in its owner-only credential store; they are never written to the audit log." TextWrapping="Wrap" FontSize="12" Foreground="{StaticResource TextMuted}" />
+          <Grid ColumnDefinitions="*,2*">
+            <ComboBox ItemsSource="{Binding JcodeProviders}" SelectedItem="{Binding JcodeProvider}" />
+            <TextBox Grid.Column="1" Margin="8,0,0,0" Text="{Binding JcodeApiKey}" PasswordChar="●" Watermark="Provider API key" />
+          </Grid>
+          <StackPanel Orientation="Horizontal" Spacing="8">
+            <Button Classes="primary" Command="{Binding ConfigureJcodeProviderCommand}" Content="Save provider key" />
+            <Button Classes="secondary" Command="{Binding ClearJcodeProviderCommand}" Content="Clear provider key" />
+          </StackPanel>
+          <TextBlock Text="{Binding JcodeProviderMessage}" TextWrapping="Wrap" FontSize="12" Foreground="{StaticResource TextMuted}" />
           <Grid ColumnDefinitions="*,Auto">
             <TextBox Text="{Binding JcodeWorkspace}" Watermark="Workspace path relative to MutexFlow root" />
             <Button Grid.Column="1" Classes="secondary" Command="{Binding CreateJcodeSessionCommand}" IsEnabled="{Binding JcodeProviderReady}" Content="Create agent session" />
