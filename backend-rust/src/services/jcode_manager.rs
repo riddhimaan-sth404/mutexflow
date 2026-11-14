@@ -25,8 +25,9 @@ const MAX_RETAINED_EVENTS_PER_SESSION: usize = 1024;
 const AUDIT_RPC_TIMEOUT: Duration = Duration::from_secs(5);
 const STATE_TTL_SECS: u64 = 3600;
 
-/// Per-turn wall-clock budget. A hung JCode turn must never hold its
-/// concurrency permit forever; override with JCODE_TURN_TIMEOUT_SECS.
+/// Per-turn wall-clock budget. A timed-out turn is cancelled, and an
+/// unresponsive runtime is terminated to release its concurrency permit.
+/// Override with JCODE_TURN_TIMEOUT_SECS.
 fn turn_timeout() -> Duration {
     std::env::var("JCODE_TURN_TIMEOUT_SECS")
         .ok()
@@ -709,6 +710,8 @@ impl JcodeManager {
         self.update_agent_status(&session_id, "thinking", 0).await;
         let prompt = prompt.to_string();
         let status_session_id = session_id.clone();
+        let cancel_runtime = runtime.clone();
+        let recovery_runtime = runtime.clone();
         let orchestral = self.orchestral.clone();
         let events = self.events.clone();
         let event_counts = self.event_counts.clone();
@@ -844,13 +847,35 @@ impl JcodeManager {
                 "usage": usage
             }))
         });
-        // A hung JCode turn must not hold its concurrency permit forever.
-        let result = match tokio::time::timeout(timeout_budget, turn_task).await {
+        // Keep the blocking task handle alive after timeout so cancellation
+        // can finish it and release the semaphore permit. If the daemon ignores
+        // cancellation, terminate the isolated runtime as a hard stop.
+        let mut turn_task = turn_task;
+        let mut timed_out = false;
+        let result = match tokio::time::timeout(timeout_budget, &mut turn_task).await {
             Ok(joined) => joined.map_err(|e| format!("JCode turn task failed: {e}"))?,
-            Err(_) => Err(format!(
-                "JCode turn exceeded the {} second timeout; set JCODE_TURN_TIMEOUT_SECS to adjust",
-                timeout_budget.as_secs()
-            )),
+            Err(_) => {
+                timed_out = true;
+                let cancel_id = status_session_id.clone();
+                let cancel = tokio::task::spawn_blocking(move || cancel_runtime.client.cancel(&cancel_id));
+                let _ = tokio::time::timeout(Duration::from_secs(5), cancel).await;
+
+                if tokio::time::timeout(Duration::from_secs(10), &mut turn_task).await.is_err() {
+                    warn!("[JCode] Turn cancellation did not stop the worker; terminating the isolated runtime.");
+                    let runtime_to_terminate = recovery_runtime.clone();
+                    let _ = tokio::task::spawn_blocking(move || runtime_to_terminate.terminate()).await;
+                    if let Ok(mut slot) = self.runtime.lock() {
+                        if slot.as_ref().is_some_and(|current| Arc::ptr_eq(current, &recovery_runtime)) {
+                            slot.take();
+                        }
+                    }
+                    let _ = tokio::time::timeout(Duration::from_secs(5), &mut turn_task).await;
+                }
+                Err(format!(
+                    "JCode turn exceeded the {} second timeout; cancellation was requested and the runtime was restarted if needed",
+                    timeout_budget.as_secs()
+                ))
+            }
         };
 
         match result {
@@ -860,7 +885,7 @@ impl JcodeManager {
                 Ok(value)
             }
             Err(error) => {
-                self.update_agent_status(&status_session_id, "failed", 0).await;
+                self.update_agent_status(&status_session_id, if timed_out { "cancelled" } else { "failed" }, 0).await;
                 Err(error)
             }
         }
