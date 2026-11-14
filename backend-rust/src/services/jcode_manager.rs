@@ -167,7 +167,7 @@ impl JcodeManager {
         } else if !connected {
             "JCode is enabled but not connected. Check the configured JCode binary.".into()
         } else if !provider_ready {
-            "JCode is connected but has no API-key provider configured. Set JCODE_OPENAI_API_KEY, JCODE_ANTHROPIC_API_KEY, JCODE_OPENROUTER_API_KEY, or JCODE_GEMINI_API_KEY; keys are written to JCode's owner-only credential store.".into()
+            "JCode is connected but has no API-key provider configured. Add a provider key in the Avalonia dashboard or use JCODE_OPENAI_API_KEY, JCODE_ANTHROPIC_API_KEY, JCODE_OPENROUTER_API_KEY, or JCODE_GEMINI_API_KEY.".into()
         } else {
             "JCode Harness is connected with provider credentials provisioned into its isolated owner-only store. Agent tools are mediated by Citadel.".into()
         };
@@ -195,7 +195,7 @@ impl JcodeManager {
             self.orchestral.record_audit(
                 "mutexflow-jcode",
                 "jcode_provider_key_requested",
-                &json!({"provider": provider, "key_bytes": key_bytes}).to_string(),
+                &json!({"provider": provider}).to_string(),
             ).await?;
         }
         tokio::task::spawn_blocking(move || runtime.client.set_api_key(&provider_owned, &key))
@@ -213,7 +213,7 @@ impl JcodeManager {
             self.orchestral.record_audit(
                 "mutexflow-jcode",
                 "jcode_provider_key_configured",
-                &json!({"provider": provider, "key_bytes": key_bytes}).to_string(),
+                &json!({"provider": provider}).to_string(),
             ).await.is_ok()
         } else {
             false
@@ -1567,7 +1567,7 @@ mod tests {
         assert!(validate_provider_key("sk-test-secret").is_ok());
         assert!(validate_provider_key(" ").is_err());
         assert!(validate_provider_key(" sk-test-secret").is_err());
-        assert!(validate_provider_key("sk-test\\nsecret").is_err());
+        assert!(validate_provider_key("sk-test\nsecret").is_err());
     }
 
     #[test]
@@ -1576,6 +1576,7 @@ mod tests {
         assert!(!super::provider_is_configured(Some("anthropic-api"), &vec!["openai-api".into()]));
         assert!(super::provider_is_configured(Some("anthropic-api"), &vec!["claude-api".into()]));
         assert!(super::provider_is_configured(None, &vec!["gemini".into()]));
+        assert!(super::provider_is_configured(Some("gemini-api"), &vec!["gemini".into()]));
         assert!(!super::provider_is_configured(Some("openrouter"), &[]));
     }
 
