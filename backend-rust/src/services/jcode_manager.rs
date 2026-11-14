@@ -576,6 +576,7 @@ impl JcodeManager {
 
     /// Stop the managed bridge and its registered JCode daemon during backend shutdown.
     pub fn shutdown(&self) {
+        let _startup = self.startup_lock.lock().ok();
         let runtime = self.runtime.lock().ok().and_then(|mut slot| slot.take());
         drop(runtime);
     }
@@ -907,13 +908,15 @@ impl JcodeManager {
 
                 if tokio::time::timeout(Duration::from_secs(10), &mut turn_task).await.is_err() {
                     warn!("[JCode] Turn cancellation did not stop the worker; terminating the isolated runtime.");
-                    let runtime_to_terminate = recovery_runtime.clone();
-                    let _ = tokio::task::spawn_blocking(move || runtime_to_terminate.terminate()).await;
-                    if let Ok(mut slot) = self.runtime.lock() {
-                        if slot.as_ref().is_some_and(|current| Arc::ptr_eq(current, &recovery_runtime)) {
-                            slot.take();
+                    tokio::task::block_in_place(|| {
+                        let _startup = self.startup_lock.lock().ok();
+                        recovery_runtime.terminate();
+                        if let Ok(mut slot) = self.runtime.lock() {
+                            if slot.as_ref().is_some_and(|current| Arc::ptr_eq(current, &recovery_runtime)) {
+                                slot.take();
+                            }
                         }
-                    }
+                    });
                     let _ = tokio::time::timeout(Duration::from_secs(5), &mut turn_task).await;
                 }
                 Err(format!(
