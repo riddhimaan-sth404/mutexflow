@@ -104,6 +104,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+      - name: Install Orchestral worker package
+        run: python -m pip install --editable orchestral-runtime/worker
       - name: Build MutexFlow backend
         run: cargo build --locked --manifest-path backend-rust/Cargo.toml
       - name: Start managed runtime and exercise backend APIs
