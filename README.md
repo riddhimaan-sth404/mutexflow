@@ -268,7 +268,7 @@ Use the exact variable names in `.env.example`; do not place secrets in source c
 MutexFlow is under development and should not be treated as production-hardened.
 
 - The backend binds to loopback by default (`BIND_ADDR=127.0.0.1`) and restricts browser CORS origins to loopback. Do not change the bind address or expose local control endpoints to an untrusted network without a separate authentication and threat-model review.
-- The `/api/v1/orchestral/*` and `/api/v1/jcode/*` routes require the `X-MutexFlow-Token` header (see [SECURITY.md](SECURITY.md)). The desktop client attaches it automatically from `MUTEXFLOW_API_TOKEN` or `.mutexflow/backend-token`. The vendored offensive tooling (Kali terminal, port scanner, HTTP probe, swarm coordinator) is dormant and requires an explicit `MUTEXFLOW_ENABLE_EXTENDED_TOOLS=1` opt-in.
+- The `/api/v1/orchestral/*` and `/api/v1/jcode/*` routes require the `X-MutexFlow-Token` header (see [SECURITY.md](SECURITY.md)). The desktop client attaches it automatically from `MUTEXFLOW_API_TOKEN` or `.mutexflow/backend-token`. The vendored terminal, network-probing, and autonomous swarm modules are hard-disabled in the MutexFlow bundle; no environment variable can enable them.
 - Keep Supabase service-role keys, provider API keys, OAuth client secrets, and integration tokens private.
 - In the current desktop storage implementation, Windows secrets use DPAPI for the current user. The non-Windows fallback writes secret values as ordinary files; do not assume equivalent at-rest protection on Linux or macOS.
 - Review license verification and offline behavior before relying on licensing as an enforcement boundary.
