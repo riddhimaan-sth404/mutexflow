@@ -214,7 +214,7 @@ public partial class OrchestralViewModel : ViewModelBase
     public async Task RunJcodeBatchAsync()
     {
         if (!JcodeConnected || IsJcodeBusy) return;
-        var tasks = JcodeBatchTasks.Split(new[] { '\\r', '\\n' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var tasks = JcodeBatchTasks.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         if (tasks.Length == 0 || tasks.Length > 8)
         {
             JcodeStatusMessage = "Enter between 1 and 8 tasks, one per line.";
