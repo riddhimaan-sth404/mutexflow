@@ -86,12 +86,12 @@ a CodeQL analyzer, the Kali container sandbox, and the autonomous swarm
 coordinator. In MutexFlow these are **dormant**:
 
 - The worker's tool registry ships with only the passive secret scanner
-  registered. The extended tools are imported and registered solely when the
-  operator explicitly sets `MUTEXFLOW_ENABLE_EXTENDED_TOOLS=1`.
-- The standalone swarm runner entry point refuses to start unless the same
-  variable is set.
-- The managed MutexFlow worker never enables them, and no MutexFlow workflow
-  exposes them.
+  registered. Extended tools are never imported or registered by the managed
+  worker; no environment variable or runtime opt-in can enable them.
+- The standalone swarm runner entry point is disabled unconditionally in the
+  MutexFlow bundle.
+- No MutexFlow API or workflow exposes the dormant terminal, network-probing,
+  or autonomous swarm modules.
 - The modules are marked as dormant in their source headers.
 
 Any future use of these capabilities requires a documented target
