@@ -1176,9 +1176,9 @@ fn redact_sensitive_content(input: &str) -> String {
                 .expect("valid provider token redaction regex"),
             Regex::new(r"(?s)-----BEGIN [A-Z ]*PRIVATE KEY-----.*?-----END [A-Z ]*PRIVATE KEY-----")
                 .expect("valid private key block redaction regex"),
-            Regex::new(r"eyJ[A-Za-z0-9_-]{10,}.[A-Za-z0-9_-]{10,}.[A-Za-z0-9_-]{10,}")
+            Regex::new(r"eyJ[A-Za-z0-9_-]{10,}[.][A-Za-z0-9_-]{1,}[.][A-Za-z0-9_-]{8,}")
                 .expect("valid bare JWT redaction regex"),
-            Regex::new(r"1//[A-Za-z0-9_-]{20,}")
+            Regex::new(r"1//[A-Za-z0-9_-]{20,}")
                 .expect("valid Google refresh token redaction regex"),
         ]
     });
