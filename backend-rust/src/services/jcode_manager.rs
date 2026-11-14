@@ -208,6 +208,25 @@ impl JcodeManager {
         set_private_dir(&runtime_dir)?;
         let socket = runtime_dir.join("jcode-api.sock");
 
+        let requested_provider = std::env::var("JCODE_PROVIDER").ok().filter(|value| !value.trim().is_empty());
+        if let Some(provider) = requested_provider.as_deref() {
+            if !matches!(provider, "openai-api" | "anthropic-api" | "claude-api" | "openrouter" | "gemini") {
+                return Err("JCODE_PROVIDER must be one of openai-api, anthropic-api (claude-api), openrouter, or gemini".into());
+            }
+        }
+        let inferred_provider = if std::env::var_os("JCODE_OPENAI_API_KEY").is_some() || std::env::var_os("OPENAI_API_KEY").is_some() {
+            Some("openai-api")
+        } else if std::env::var_os("JCODE_ANTHROPIC_API_KEY").is_some() || std::env::var_os("ANTHROPIC_API_KEY").is_some() {
+            Some("anthropic-api")
+        } else if std::env::var_os("JCODE_OPENROUTER_API_KEY").is_some() || std::env::var_os("OPENROUTER_API_KEY").is_some() {
+            Some("openrouter")
+        } else if std::env::var_os("JCODE_GEMINI_API_KEY").is_some() || std::env::var_os("GEMINI_API_KEY").is_some() || std::env::var_os("GOOGLE_API_KEY").is_some() {
+            Some("gemini")
+        } else {
+            None
+        };
+        let selected_provider = requested_provider.as_deref().or(inferred_provider);
+
         let legacy_socket = runtime_dir.join("jcode.sock");
         let mut child = {
             #[cfg(unix)]
