@@ -513,7 +513,12 @@ impl JcodeManager {
                 }
             }
         }
-        persist_provider_registry(&home, &configured)?;
+        if let Err(error) = persist_provider_registry(&home, &configured) {
+            let _ = child.kill();
+            let _ = child.wait();
+            stop_registered_daemon(&home, &self.binary);
+            return Err(format!("persist JCode provider registry: {error}"));
+        }
 
         *self.configured_providers.lock()
             .map_err(|_| "JCode provider state lock poisoned")? = configured;
