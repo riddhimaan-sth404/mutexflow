@@ -444,9 +444,9 @@ fn execute_readonly_tool(root: &Path, name: &str, input: &Value) -> Result<Strin
 fn validate_relative_workspace(workspace: &str) -> Result<(), String> {
     let path = Path::new(workspace);
     let drive_qualified = workspace.as_bytes().get(1) == Some(&b':');
-    let has_parent_segment = workspace.split(|ch| ch == '/' || ch == '\\\\').any(|part| part == "..");
+    let has_parent_segment = workspace.split(|ch| ch == '/' || ch == '\\').any(|part| part == "..");
     if path.is_absolute()
-        || workspace.starts_with('/') || workspace.starts_with('\\\\')
+        || workspace.starts_with('/') || workspace.starts_with('\\')
         || drive_qualified
         || has_parent_segment
         || path.components().any(|component| {
