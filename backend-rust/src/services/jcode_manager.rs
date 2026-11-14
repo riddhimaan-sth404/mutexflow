@@ -208,73 +208,132 @@ impl JcodeManager {
         set_private_dir(&runtime_dir)?;
         let socket = runtime_dir.join("jcode-api.sock");
 
-        let mut command = Command::new(&self.binary);
-        let requested_provider = std::env::var("JCODE_PROVIDER").ok().filter(|value| !value.trim().is_empty());
-        if let Some(provider) = requested_provider.as_deref() {
-            if !matches!(provider, "openai-api" | "anthropic-api" | "claude-api" | "openrouter" | "gemini") {
-                return Err("JCODE_PROVIDER must be one of openai-api, anthropic-api (claude-api), openrouter, or gemini".into());
+        let legacy_socket = runtime_dir.join("jcode.sock");
+        let mut child = {
+            #[cfg(unix)]
+            {
+                let mut command = Command::new(&self.binary);
+                command
+                    .env_clear()
+                    .args(["--no-update", "api-bridge", "--api-socket"])
+                    .arg(&socket)
+                    .current_dir(&self.root)
+                    .env("JCODE_HOME", &home)
+                    .env("JCODE_RUNTIME_DIR", &runtime_dir)
+                    .env("JCODE_API_SOCKET", &socket)
+                    .env("JCODE_SOCKET", &legacy_socket)
+                    .env("JCODE_NO_AUTO_UPDATE", "1")
+                    .stdin(Stdio::null())
+                    .stdout(file_log(&home, "jcode.out.log")?)
+                    .stderr(file_log(&home, "jcode.err.log")?);
+                if let Some(provider) = selected_provider {
+                    command.env("JCODE_PROVIDER", provider);
+                }
+                if let Ok(model) = std::env::var("JCODE_MODEL") {
+                    if !model.trim().is_empty() {
+                        command.env("JCODE_MODEL", model);
+                    }
+                }
+                if let Some(path) = std::env::var_os("PATH") {
+                    command.env("PATH", path);
+                }
+                command.env("HOME", &home);
+                command.spawn()
+                    .map_err(|e| format!("start isolated JCode Harness: {e}"))?
             }
-        }
-        let inferred_provider = if std::env::var_os("JCODE_OPENAI_API_KEY").is_some() || std::env::var_os("OPENAI_API_KEY").is_some() {
-            Some("openai-api")
-        } else if std::env::var_os("JCODE_ANTHROPIC_API_KEY").is_some() || std::env::var_os("ANTHROPIC_API_KEY").is_some() {
-            Some("anthropic-api")
-        } else if std::env::var_os("JCODE_OPENROUTER_API_KEY").is_some() || std::env::var_os("OPENROUTER_API_KEY").is_some() {
-            Some("openrouter")
-        } else if std::env::var_os("JCODE_GEMINI_API_KEY").is_some() || std::env::var_os("GEMINI_API_KEY").is_some() || std::env::var_os("GOOGLE_API_KEY").is_some() {
-            Some("gemini")
-        } else {
-            None
+            #[cfg(windows)]
+            {
+                // The pinned JCode CLI gates its api-bridge subcommand behind
+                // cfg(unix). Windows uses the separately shipped cross-platform
+                // bridge binary and starts the ordinary daemon first.
+                let mut server = Command::new(&self.binary);
+                server
+                    .args(["--no-update", "server", "start"])
+                    .current_dir(&self.root)
+                    .env_clear()
+                    .env("JCODE_HOME", &home)
+                    .env("JCODE_RUNTIME_DIR", &runtime_dir)
+                    .env("JCODE_API_SOCKET", &socket)
+                    .env("JCODE_SOCKET", &legacy_socket)
+                    .env("JCODE_NO_AUTO_UPDATE", "1")
+                    .stdin(Stdio::null())
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::piped());
+                if let Some(provider) = selected_provider {
+                    server.env("JCODE_PROVIDER", provider);
+                }
+                if let Ok(model) = std::env::var("JCODE_MODEL") {
+                    if !model.trim().is_empty() {
+                        server.env("JCODE_MODEL", model);
+                    }
+                }
+                if let Some(path) = std::env::var_os("PATH") {
+                    server.env("PATH", path);
+                }
+                for name in [
+                    "SYSTEMROOT", "WINDIR", "TEMP", "TMP", "USERPROFILE",
+                    "APPDATA", "LOCALAPPDATA", "PROGRAMDATA", "HOMEDRIVE",
+                    "HOMEPATH", "COMSPEC", "PATHEXT",
+                ] {
+                    if let Some(value) = std::env::var_os(name) {
+                        server.env(name, value);
+                    }
+                }
+                let output = server.output()
+                    .map_err(|e| format!("start isolated JCode daemon: {e}"))?;
+                if !output.status.success() {
+                    stop_registered_daemon(&home, &self.binary);
+                    let detail = String::from_utf8_lossy(&output.stderr);
+                    let detail: String = detail.chars().take(1200).collect();
+                    return Err(format!(
+                        "JCode daemon startup failed ({}): {}",
+                        output.status,
+                        detail.trim()
+                    ));
+                }
+
+                let bridge_binary = windows_bridge_binary(&self.binary)?;
+                let mut bridge = Command::new(&bridge_binary);
+                bridge
+                    .arg(&socket)
+                    .arg(&legacy_socket)
+                    .current_dir(&self.root)
+                    .env_clear()
+                    .env("JCODE_HOME", &home)
+                    .env("JCODE_RUNTIME_DIR", &runtime_dir)
+                    .env("JCODE_API_SOCKET", &socket)
+                    .env("JCODE_SOCKET", &legacy_socket)
+                    .stdin(Stdio::null())
+                    .stdout(file_log(&home, "jcode-api-bridge.out.log")?)
+                    .stderr(file_log(&home, "jcode-api-bridge.err.log")?);
+                if let Some(path) = std::env::var_os("PATH") {
+                    bridge.env("PATH", path);
+                }
+                for name in [
+                    "SYSTEMROOT", "WINDIR", "TEMP", "TMP", "USERPROFILE",
+                    "APPDATA", "LOCALAPPDATA", "PROGRAMDATA", "HOMEDRIVE",
+                    "HOMEPATH", "COMSPEC", "PATHEXT",
+                ] {
+                    if let Some(value) = std::env::var_os(name) {
+                        bridge.env(name, value);
+                    }
+                }
+                bridge.spawn()
+                    .map_err(|e| format!("start JCode Harness API bridge at {}: {e}", bridge_binary.display()))?
+            }
         };
-        let selected_provider = requested_provider.as_deref().or(inferred_provider);
-        command
-            .env_clear()
-            .args(["--no-update", "api-bridge", "--api-socket"])
-            .arg(&socket)
-            .current_dir(&self.root)
-            .env("JCODE_HOME", &home)
-            .env("JCODE_RUNTIME_DIR", &runtime_dir)
-            .env("JCODE_API_SOCKET", &socket)
-            .env("JCODE_SOCKET", runtime_dir.join("jcode.sock"))
-            .env("JCODE_NO_AUTO_UPDATE", "1")
-            .stdin(Stdio::null())
-            .stdout(file_log(&home, "jcode.out.log")?)
-            .stderr(file_log(&home, "jcode.err.log")?);
-
-        if let Some(provider) = selected_provider {
-            command.env("JCODE_PROVIDER", provider);
-        }
-        if let Ok(model) = std::env::var("JCODE_MODEL") {
-            if !model.trim().is_empty() {
-                command.env("JCODE_MODEL", model);
-            }
-        }
-        if let Some(path) = std::env::var_os("PATH") {
-            command.env("PATH", path);
-        }
-        #[cfg(windows)]
-        for name in ["SYSTEMROOT", "WINDIR", "TEMP", "TMP"] {
-            if let Some(value) = std::env::var_os(name) {
-                command.env(name, value);
-            }
-        }
-        #[cfg(unix)]
-        command.env("HOME", &home);
-
-        let mut child = command.spawn()
-            .map_err(|e| format!("start isolated JCode Harness: {e}"))?;
         let deadline = Instant::now() + Duration::from_secs(45);
         let client = loop {
             match child.try_wait() {
                 Ok(Some(status)) => {
                     stop_registered_daemon(&home, &self.binary);
-                    return Err(format!("JCode Harness exited during startup ({status})"));
+                    return Err(format!("JCode Harness bridge exited during startup ({status})"));
                 }
                 Err(error) => {
                     let _ = child.kill();
                     let _ = child.wait();
                     stop_registered_daemon(&home, &self.binary);
-                    return Err(format!("check JCode process: {error}"));
+                    return Err(format!("check JCode Harness bridge process: {error}"));
                 }
                 Ok(None) => {}
             }
@@ -292,7 +351,7 @@ impl JcodeManager {
                 let _ = child.kill();
                 let _ = child.wait();
                 stop_registered_daemon(&home, &self.binary);
-                return Err("JCode Harness did not become ready within 45 seconds".into());
+                return Err("JCode Harness API bridge did not become ready within 45 seconds".into());
             }
             std::thread::sleep(Duration::from_millis(250));
         };
@@ -915,6 +974,28 @@ fn provider_is_configured(selected: Option<&str>, configured: &[String]) -> bool
         Some(provider) => configured.iter().any(|configured| configured == provider),
         None => !configured.is_empty(),
     }
+}
+
+#[cfg(windows)]
+fn windows_bridge_binary(jcode_binary: &Path) -> Result<PathBuf, String> {
+    if let Some(configured) = std::env::var_os("JCODE_API_BRIDGE_BINARY") {
+        let path = PathBuf::from(configured);
+        if path.is_file() {
+            return Ok(path);
+        }
+        return Err(format!("JCODE_API_BRIDGE_BINARY does not name a file: {}", path.display()));
+    }
+    let sibling = jcode_binary
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .join("jcode-harness-api-bridge.exe");
+    if sibling.is_file() {
+        return Ok(sibling);
+    }
+    Err(format!(
+        "Windows requires the pinned jcode-harness-api-bridge.exe; set JCODE_API_BRIDGE_BINARY or place it beside {}",
+        jcode_binary.display()
+    ))
 }
 
 fn runtime_is_alive(runtime: &JcodeRuntime) -> bool {

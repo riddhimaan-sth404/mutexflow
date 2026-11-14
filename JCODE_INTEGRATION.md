@@ -68,6 +68,7 @@ Copy `backend-rust/.env.example` to `backend-rust/.env` and set:
 
 - `JCODE_AUTOSTART=true`
 - `JCODE_BINARY=/path/to/jcode` (or the Windows executable path)
+- On Windows, build the matching pinned JCode Harness API bridge and set `JCODE_API_BRIDGE_BINARY` to its path, or place `jcode-harness-api-bridge.exe` beside `jcode.exe`. The upstream CLI api-bridge subcommand is Unix-only; MutexFlow starts the Windows daemon with `jcode server start` and hosts the same versioned API through this companion bridge.
 - `ORCHESTRAL_ADMIN_KEY` and `ORCHESTRAL_JWT_SECRET` for the managed Citadel runtime
 - One provider key: `JCODE_OPENAI_API_KEY`, `JCODE_ANTHROPIC_API_KEY`, `JCODE_OPENROUTER_API_KEY`, or `JCODE_GEMINI_API_KEY`
 - `MUTEXFLOW_API_TOKEN` if you want to choose the local API token yourself; otherwise the backend generates one and stores it owner-only at `.mutexflow/backend-token`. Clients must send it as `X-MutexFlow-Token` on `/api/v1/orchestral/*` and `/api/v1/jcode/*` routes.
@@ -81,7 +82,7 @@ Never commit the real `.env` or credential files.
 The branch includes:
 
 - JCode SDK/API compatibility checks on Linux and Windows.
-- Linux and Windows builds of the pinned JCode executable, each followed by an isolated backend lifecycle smoke test.
+- Linux and Windows builds of the pinned JCode executable, each followed by an isolated backend lifecycle smoke test. The Windows job also builds and exercises the pinned standalone Harness API bridge because the upstream CLI api-bridge subcommand is Unix-only.
 - Rust tests for workspace path confinement, secret-file exclusion, and bounded event retention.
 - Full MutexFlow/Orchestral CI, including backend tests, Citadel tests, Python worker tests, Avalonia build, Windows integration smoke, and managed-runtime end-to-end tests.
 

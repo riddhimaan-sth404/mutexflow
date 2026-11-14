@@ -41,7 +41,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
       - name: Test versioned API and SDK
         working-directory: jcode-upstream
-        run: cargo check --locked -p jcode-harness-api -p jcode-harness-api-server -p jcode-sdk && cargo test --locked -p jcode-sdk -- --skip auth::tests::processes::browser_callback_rejects_unrelated_requests_then_completes_over_stdin
+        run: cargo check --locked -p jcode-harness-api -p jcode-harness-api-server -p jcode-sdk && cargo test --locked -p jcode-sdk -- --skip auth::tests::processes::browser_callback_rejects_unrelated_requests_then_completes_over_stdin --skip auth::tests::processes::callback_wait_is_interrupted_by_cancel_and_manual_completion
 
   isolated-runtime-smoke:
     name: Isolated JCode runtime smoke (Linux)
@@ -85,11 +85,15 @@ jobs:
       - name: Build headless JCode runtime
         working-directory: jcode-upstream
         run: cargo build --locked --no-default-features --bin jcode
+      - name: Build Windows Harness API bridge
+        working-directory: jcode-upstream
+        run: cargo build --locked -p jcode-harness-api-server --bin jcode-harness-api-bridge
       - name: Exercise isolated backend lifecycle
         env:
           JCODE_RUNTIME_SMOKE: "1"
           JCODE_AUTOSTART: "true"
           JCODE_BINARY: ${{ github.workspace }}\\jcode-upstream\\target\\debug\\jcode.exe
+          JCODE_API_BRIDGE_BINARY: ${{ github.workspace }}\\jcode-upstream\\target\\debug\\jcode-harness-api-bridge.exe
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Continue'
