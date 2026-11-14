@@ -20,7 +20,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - name: Test backend
-        run: cargo test --locked --manifest-path backend-rust/Cargo.toml
+        run: cargo test --manifest-path backend-rust/Cargo.toml
       - name: Export resolved backend Cargo.lock
         if: always()
         uses: actions/upload-artifact@v4
@@ -82,7 +82,7 @@ jobs:
         with:
           python-version: "3.11"
       - name: Test MutexFlow backend
-        run: cargo test --locked --manifest-path backend-rust/Cargo.toml
+        run: cargo test --manifest-path backend-rust/Cargo.toml
       - name: Test Orchestral Citadel
         run: cargo test --manifest-path orchestral-runtime/core/Cargo.toml
       - name: Build Avalonia desktop
@@ -105,7 +105,7 @@ jobs:
         with:
           python-version: "3.11"
       - name: Build MutexFlow backend
-        run: cargo build --locked --manifest-path backend-rust/Cargo.toml
+        run: cargo build --manifest-path backend-rust/Cargo.toml
       - name: Start managed runtime and exercise backend APIs
         shell: bash
         run: |
