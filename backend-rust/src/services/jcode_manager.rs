@@ -531,7 +531,8 @@ impl JcodeManager {
                                 "session_id": tool_session_id,
                                 "tool": tool_name,
                                 "path": relative_path,
-                                "arguments": input
+                                "query_bytes": input.get("query").and_then(Value::as_str).map(str::len),
+                                "case_sensitive": input.get("case_sensitive").and_then(Value::as_bool)
                             }).to_string();
                             let audit_ok = audit_runtime.block_on(orchestral.record_audit(
                                 &tool_session_id, "jcode_tool_requested", &request_details
@@ -1003,7 +1004,7 @@ fn redact_sensitive_content(input: &str) -> String {
     let patterns = PATTERNS.get_or_init(|| {
         vec![
             Regex::new(
-                r#"(?i)((?:api[_-]?key|access[_-]?token|refresh[_-]?token|auth[_-]?token|client[_-]?secret|secret|password|passwd|private[_-]?key|authorization|database[_-]?url|connection[_-]?string)\s*[:=]\s*["']?)[^"'\s,;}\]]+"#,
+                r#"(?i)((?:api[_-]?key|access[_-]?key|access[_-]?token|refresh[_-]?token|auth[_-]?token|client[_-]?secret|secret[_-]?key|secret[_-]?access[_-]?key|aws[_-]?secret[_-]?access[_-]?key|jwt[_-]?secret|db[_-]?password|database[_-]?password|password|passwd|private[_-]?key|authorization|database[_-]?url|connection[_-]?string)\s*[:=]\s*)(?:"(?:\\\\.|[^"])*"|'(?:\\\\.|[^'])*'|[^\r\n,;}]+)"#,
             ).expect("valid secret assignment redaction regex"),
             Regex::new(r"(?i)(bearer\s+)[A-Za-z0-9._~+/-]+=*")
                 .expect("valid bearer token redaction regex"),
