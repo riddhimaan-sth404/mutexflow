@@ -311,7 +311,27 @@ impl JcodeManager {
                     ));
                 }
 
-                let bridge_binary = windows_bridge_binary(&self.binary)?;
+                let bridge_binary = match windows_bridge_binary(&self.binary) {
+                    Ok(path) => path,
+                    Err(error) => {
+                        stop_registered_daemon(&home, &self.binary);
+                        return Err(error);
+                    }
+                };
+                let bridge_stdout = match file_log(&home, "jcode-api-bridge.out.log") {
+                    Ok(file) => file,
+                    Err(error) => {
+                        stop_registered_daemon(&home, &self.binary);
+                        return Err(error);
+                    }
+                };
+                let bridge_stderr = match file_log(&home, "jcode-api-bridge.err.log") {
+                    Ok(file) => file,
+                    Err(error) => {
+                        stop_registered_daemon(&home, &self.binary);
+                        return Err(error);
+                    }
+                };
                 let mut bridge = Command::new(&bridge_binary);
                 bridge
                     .arg(&socket)
@@ -323,8 +343,8 @@ impl JcodeManager {
                     .env("JCODE_API_SOCKET", &socket)
                     .env("JCODE_SOCKET", &legacy_socket)
                     .stdin(Stdio::null())
-                    .stdout(file_log(&home, "jcode-api-bridge.out.log")?)
-                    .stderr(file_log(&home, "jcode-api-bridge.err.log")?);
+                    .stdout(bridge_stdout)
+                    .stderr(bridge_stderr);
                 if let Some(path) = std::env::var_os("PATH") {
                     bridge.env("PATH", path);
                 }
@@ -337,8 +357,13 @@ impl JcodeManager {
                         bridge.env(name, value);
                     }
                 }
-                bridge.spawn()
-                    .map_err(|e| format!("start JCode Harness API bridge at {}: {e}", bridge_binary.display()))?
+                match bridge.spawn() {
+                    Ok(child) => child,
+                    Err(error) => {
+                        stop_registered_daemon(&home, &self.binary);
+                        return Err(format!("start JCode Harness API bridge at {}: {error}", bridge_binary.display()));
+                    }
+                }
             }
         };
         let deadline = Instant::now() + Duration::from_secs(45);
