@@ -20,17 +20,32 @@ use tracing::{info, warn};
 
 const MAX_PROMPT_BYTES: usize = 64 * 1024;
 const MAX_CONCURRENT_TURNS: usize = 8;
-const MAX_RETAINED_EVENTS: usize = 2048;
+const MAX_RETAINED_EVENTS: usize = 8192;
+const MAX_RETAINED_EVENTS_PER_SESSION: usize = 1024;
+const AUDIT_RPC_TIMEOUT: Duration = Duration::from_secs(5);
+const STATE_TTL_SECS: u64 = 3600;
+
+/// Per-turn wall-clock budget. A hung JCode turn must never hold its
+/// concurrency permit forever; override with JCODE_TURN_TIMEOUT_SECS.
+fn turn_timeout() -> Duration {
+    std::env::var("JCODE_TURN_TIMEOUT_SECS")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .filter(|seconds| (1..=86400).contains(seconds))
+        .map(Duration::from_secs)
+        .unwrap_or(Duration::from_secs(900))
+}
 
 struct JcodeRuntime {
     client: JcodeClient,
     child: Mutex<Child>,
     home: PathBuf,
+    binary: PathBuf,
 }
 
 impl JcodeRuntime {
     fn terminate(&self) {
-        stop_registered_daemon(&self.home);
+        stop_registered_daemon(&self.home, &self.binary);
         if let Ok(mut child) = self.child.lock() {
             let _ = child.kill();
             let _ = child.wait();
@@ -74,12 +89,15 @@ struct JcodeBatchRecord {
     results: Vec<Value>,
     #[serde(skip)]
     cancel_requested: bool,
+    #[serde(skip)]
+    created_at: Instant,
 }
 
 #[derive(Clone)]
 struct AgentMetadata {
     role: String,
     objective: String,
+    last_active: Instant,
 }
 
 pub struct JcodeManager {
@@ -91,6 +109,7 @@ pub struct JcodeManager {
     turns: Arc<Semaphore>,
     orchestral: Arc<crate::services::orchestral_manager::OrchestralManager>,
     events: Arc<Mutex<VecDeque<JcodeEvent>>>,
+    event_counts: Arc<Mutex<HashMap<String, usize>>>,
     event_sequence: Arc<AtomicU64>,
     agents: Mutex<HashMap<String, AgentMetadata>>,
     batches: Mutex<HashMap<String, JcodeBatchRecord>>,
@@ -119,6 +138,7 @@ impl JcodeManager {
             turns: Arc::new(Semaphore::new(MAX_CONCURRENT_TURNS)),
             orchestral,
             events: Arc::new(Mutex::new(VecDeque::new())),
+            event_counts: Arc::new(Mutex::new(HashMap::new())),
             event_sequence: Arc::new(AtomicU64::new(0)),
             agents: Mutex::new(HashMap::new()),
             batches: Mutex::new(HashMap::new()),
@@ -192,7 +212,7 @@ impl JcodeManager {
         let requested_provider = std::env::var("JCODE_PROVIDER").ok().filter(|value| !value.trim().is_empty());
         if let Some(provider) = requested_provider.as_deref() {
             if !matches!(provider, "openai-api" | "anthropic-api" | "claude-api" | "openrouter" | "gemini") {
-                return Err("JCODE_PROVIDER must be one of openai-api, anthropic-api, openrouter, or gemini".into());
+                return Err("JCODE_PROVIDER must be one of openai-api, anthropic-api (claude-api), openrouter, or gemini".into());
             }
         }
         let inferred_provider = if std::env::var_os("JCODE_OPENAI_API_KEY").is_some() || std::env::var_os("OPENAI_API_KEY").is_some() {
@@ -218,8 +238,8 @@ impl JcodeManager {
             .env("JCODE_SOCKET", runtime_dir.join("jcode.sock"))
             .env("JCODE_NO_AUTO_UPDATE", "1")
             .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null());
+            .stdout(file_log(&home, "jcode.out.log")?)
+            .stderr(file_log(&home, "jcode.err.log")?);
 
         if let Some(provider) = selected_provider {
             command.env("JCODE_PROVIDER", provider);
@@ -247,13 +267,13 @@ impl JcodeManager {
         let client = loop {
             match child.try_wait() {
                 Ok(Some(status)) => {
-                    stop_registered_daemon(&home);
+                    stop_registered_daemon(&home, &self.binary);
                     return Err(format!("JCode Harness exited during startup ({status})"));
                 }
                 Err(error) => {
                     let _ = child.kill();
                     let _ = child.wait();
-                    stop_registered_daemon(&home);
+                    stop_registered_daemon(&home, &self.binary);
                     return Err(format!("check JCode process: {error}"));
                 }
                 Ok(None) => {}
@@ -271,7 +291,7 @@ impl JcodeManager {
             if Instant::now() >= deadline {
                 let _ = child.kill();
                 let _ = child.wait();
-                stop_registered_daemon(&home);
+                stop_registered_daemon(&home, &self.binary);
                 return Err("JCode Harness did not become ready within 45 seconds".into());
             }
             std::thread::sleep(Duration::from_millis(250));
@@ -294,7 +314,7 @@ impl JcodeManager {
                 if let Err(error) = client.set_api_key(provider, &key) {
                     let _ = child.kill();
                     let _ = child.wait();
-                    stop_registered_daemon(&home);
+                    stop_registered_daemon(&home, &self.binary);
                     return Err(format!("provision JCode {provider} credentials: {error}"));
                 }
                 configured.push(provider.to_string());
@@ -303,13 +323,13 @@ impl JcodeManager {
 
         *self.configured_providers.lock()
             .map_err(|_| "JCode provider state lock poisoned")? = configured;
-        let runtime = Arc::new(JcodeRuntime { client, child: Mutex::new(child), home });
+        let runtime = Arc::new(JcodeRuntime { client, child: Mutex::new(child), home, binary: self.binary.clone() });
         *self.runtime.lock().map_err(|_| "JCode runtime lock poisoned")? = Some(runtime);
         info!("[JCode] Isolated Harness started; provider credentials were provisioned through the SDK.");
         Ok(())
     }
 
-    fn client(&self) -> Result<Arc<JcodeRuntime>, String> {
+    async fn ensure_client(&self) -> Result<Arc<JcodeRuntime>, String> {
         let current = self.runtime.lock()
             .map_err(|_| "JCode runtime lock poisoned".to_string())?
             .clone();
@@ -318,7 +338,10 @@ impl JcodeManager {
                 return Ok(runtime);
             }
         }
-        self.start()?;
+        // start() blocks on process spawn and a socket-connect loop; run it
+        // off the async reactor threads so a slow JCode launch cannot stall
+        // other requests.
+        tokio::task::block_in_place(|| self.start())?;
         self.runtime.lock()
             .map_err(|_| "JCode runtime lock poisoned".to_string())?
             .clone()
@@ -337,6 +360,7 @@ impl JcodeManager {
 
     fn push_event(
         events: &Arc<Mutex<VecDeque<JcodeEvent>>>,
+        counts: &Arc<Mutex<HashMap<String, usize>>>,
         sequence: &Arc<AtomicU64>,
         session_id: &str,
         kind: &str,
@@ -361,8 +385,28 @@ impl JcodeManager {
         };
         if let Ok(mut retained) = events.lock() {
             retained.push_back(event);
+            // Retain a fair per-session window so one noisy session cannot
+            // evict another session's events from the shared buffer.
+            if let Ok(mut counts) = counts.lock() {
+                let session_count = counts.entry(session_id.to_string()).or_insert(0);
+                *session_count += 1;
+                while *session_count > MAX_RETAINED_EVENTS_PER_SESSION {
+                    let Some(position) = retained.iter().position(|event| event.session_id == session_id) else {
+                        *session_count = 0;
+                        break;
+                    };
+                    retained.remove(position);
+                    *session_count -= 1;
+                }
+            }
             while retained.len() > MAX_RETAINED_EVENTS {
-                retained.pop_front();
+                if let Some(dropped) = retained.pop_front() {
+                    if let Ok(mut counts) = counts.lock() {
+                        if let Some(session_count) = counts.get_mut(&dropped.session_id) {
+                            *session_count = session_count.saturating_sub(1);
+                        }
+                    }
+                }
             }
         }
     }
@@ -403,7 +447,7 @@ impl JcodeManager {
             "last_seen": chrono::Utc::now().to_rfc3339()
         });
         if let Err(error) = self.orchestral.core_post_json("/api/v1/swarm/agents", &agent).await {
-            let runtime = self.client()?;
+            let runtime = self.ensure_client().await?;
             let id = session_id.clone();
             let _ = tokio::task::spawn_blocking(move || runtime.client.cancel(&id)).await;
             return Err(format!("register JCode agent with Citadel: {error}"));
@@ -416,15 +460,16 @@ impl JcodeManager {
             let mut failed_agent = agent.clone();
             failed_agent["status"] = json!("failed");
             let _ = self.orchestral.core_post_json("/api/v1/swarm/agents", &failed_agent).await;
-            if let Ok(runtime) = self.client() {
+            if let Ok(runtime) = self.ensure_client().await {
                 let cancel_id = session_id.clone();
                 let _ = tokio::task::spawn_blocking(move || runtime.client.cancel(&cancel_id)).await;
             }
             return Err(format!("record JCode agent creation in Citadel audit: {error}"));
         }
+        self.evict_stale_state();
         self.agents.lock().map_err(|_| "JCode agent registry lock poisoned")?.insert(
             session_id.clone(),
-            AgentMetadata { role: role.to_string(), objective: objective.to_string() },
+            AgentMetadata { role: role.to_string(), objective: objective.to_string(), last_active: Instant::now() },
         );
         Ok(json!({
             "session_id": session_id,
@@ -446,7 +491,7 @@ impl JcodeManager {
         validate_relative_workspace(workspace)?;
         let root = self.root.clone();
         let requested = workspace.to_string();
-        let runtime = self.client()?;
+        let runtime = self.ensure_client().await?;
         let citadel_ready = self.orchestral.status().await.core_healthy;
         tokio::task::spawn_blocking(move || {
             let workspace_path = resolve_workspace(&root, &requested)?;
@@ -478,7 +523,7 @@ impl JcodeManager {
         }
         let permit = self.turns.clone().acquire_owned().await
             .map_err(|_| "JCode concurrency gate is closed".to_string())?;
-        let runtime = self.client()?;
+        let runtime = self.ensure_client().await?;
         let session_id = session_id.to_string();
         let allowed_root = self.root.clone();
         self.update_agent_status(&session_id, "thinking", 0).await;
@@ -486,10 +531,12 @@ impl JcodeManager {
         let status_session_id = session_id.clone();
         let orchestral = self.orchestral.clone();
         let events = self.events.clone();
+        let event_counts = self.event_counts.clone();
         let sequence = self.event_sequence.clone();
         let audit_runtime = tokio::runtime::Handle::current();
         let citadel_ready = self.orchestral.status().await.core_healthy;
-        let result = tokio::task::spawn_blocking(move || {
+        let timeout_budget = turn_timeout();
+        let turn_task = tokio::task::spawn_blocking(move || {
             let _permit = permit;
             let known = runtime.client.list_sessions()
                 .map_err(|e| format!("list JCode sessions: {e}"))?;
@@ -509,16 +556,17 @@ impl JcodeManager {
                 .map_err(|e| format!("reconfigure restricted JCode tools: {e}"))?;
             let client_for_tools = runtime.client.clone();
             let callback_events = events.clone();
+            let callback_counts = event_counts.clone();
             let callback_sequence = sequence.clone();
             let callback_session = session_id.clone();
             let options = RunOptions {
                 on_event: Some(Box::new(move |event| {
                     match event {
                         ApiEvent::TextDelta { text, .. } => Self::push_event(
-                            &callback_events, &callback_sequence, &callback_session, "text_delta", Some(text.clone()), None
+                            &callback_events, &callback_counts, &callback_sequence, &callback_session, "text_delta", Some(text.clone()), None
                         ),
                         ApiEvent::TextReplace { text, .. } => Self::push_event(
-                            &callback_events, &callback_sequence, &callback_session, "text_replace", Some(text.clone()), None
+                            &callback_events, &callback_counts, &callback_sequence, &callback_session, "text_replace", Some(text.clone()), None
                         ),
                         ApiEvent::ToolCall { session_id: tool_session, call_id, name, input } => {
                             let tool_session_id = tool_session.clone();
@@ -532,9 +580,15 @@ impl JcodeManager {
                                 "query_bytes": input.get("query").and_then(Value::as_str).map(str::len),
                                 "case_sensitive": input.get("case_sensitive").and_then(Value::as_bool)
                             }).to_string();
-                            let audit_ok = audit_runtime.block_on(orchestral.record_audit(
-                                &tool_session_id, "jcode_tool_requested", &request_details
-                            )).is_ok();
+                            // Bounded audit RPC: a stalled Citadel must not
+                            // freeze the tool-call callback; fail closed.
+                            let audit_ok = audit_runtime
+                                .block_on(tokio::time::timeout(
+                                    AUDIT_RPC_TIMEOUT,
+                                    orchestral.record_audit(&tool_session_id, "jcode_tool_requested", &request_details),
+                                ))
+                                .map(|outcome| outcome.is_ok())
+                                .unwrap_or(false);
                             let outcome = if !allow_tools {
                                 Err("tools are disabled for this JCode turn".to_string())
                             } else if audit_ok {
@@ -553,9 +607,12 @@ impl JcodeManager {
                                 "output_bytes": output.len(),
                                 "error": error.as_deref()
                             }).to_string();
-                            let result_audit = audit_runtime.block_on(orchestral.record_audit(
-                                &tool_session_id, "jcode_tool_completed", &result_details
-                            ));
+                            let result_audit: Result<(), String> = audit_runtime
+                                .block_on(tokio::time::timeout(
+                                    AUDIT_RPC_TIMEOUT,
+                                    orchestral.record_audit(&tool_session_id, "jcode_tool_completed", &result_details),
+                                ))
+                                .unwrap_or_else(|_| Err("Citadel audit timed out".to_string()));
                             let (output, error) = if result_audit.is_err() {
                                 (String::new(), Some("Citadel audit unavailable; tool result withheld".to_string()))
                             } else {
@@ -567,20 +624,20 @@ impl JcodeManager {
                                 warn!("[JCode] Failed to return restricted tool result: {}", error);
                             }
                             Self::push_event(
-                                &callback_events, &callback_sequence, &callback_session,
+                                &callback_events, &callback_counts, &callback_sequence, &callback_session,
                                 "tool_call", None, Some(tool_name)
                             );
                         }
                         ApiEvent::ToolDone { name, .. } => Self::push_event(
-                            &callback_events, &callback_sequence, &callback_session,
+                            &callback_events, &callback_counts, &callback_sequence, &callback_session,
                             "tool_done", None, Some(name.clone())
                         ),
                         ApiEvent::TurnDone { .. } => Self::push_event(
-                            &callback_events, &callback_sequence, &callback_session,
+                            &callback_events, &callback_counts, &callback_sequence, &callback_session,
                             "turn_done", None, None
                         ),
                         ApiEvent::Error { code, message } => Self::push_event(
-                            &callback_events, &callback_sequence, &callback_session,
+                            &callback_events, &callback_counts, &callback_sequence, &callback_session,
                             "error", Some(format!("{code:?}: {message}")), None
                         ),
                         _ => {}
@@ -606,7 +663,15 @@ impl JcodeManager {
                 "elapsed_ms": elapsed_ms,
                 "usage": usage
             }))
-        }).await.map_err(|e| format!("JCode turn task failed: {e}"))?;
+        });
+        // A hung JCode turn must not hold its concurrency permit forever.
+        let result = match tokio::time::timeout(timeout_budget, turn_task).await {
+            Ok(joined) => joined.map_err(|e| format!("JCode turn task failed: {e}"))?,
+            Err(_) => Err(format!(
+                "JCode turn exceeded the {} second timeout; set JCODE_TURN_TIMEOUT_SECS to adjust",
+                timeout_budget.as_secs()
+            )),
+        };
 
         match result {
             Ok(value) => {
@@ -622,7 +687,12 @@ impl JcodeManager {
     }
 
     async fn update_agent_status(&self, session_id: &str, status: &str, tokens_used: u64) {
-        let metadata = self.agents.lock().ok().and_then(|agents| agents.get(session_id).cloned());
+        let metadata = self.agents.lock().ok().and_then(|mut agents| {
+            agents.get_mut(session_id).map(|metadata| {
+                metadata.last_active = Instant::now();
+                metadata.clone()
+            })
+        });
         if let Some(metadata) = metadata {
             let payload = json!({
                 "id": session_id,
@@ -647,7 +717,7 @@ impl JcodeManager {
     }
 
     pub async fn cancel(&self, session_id: &str) -> Result<Value, String> {
-        let runtime = self.client()?;
+        let runtime = self.ensure_client().await?;
         let session_id = session_id.to_string();
         let cancel_id = session_id.clone();
         tokio::task::spawn_blocking(move || {
@@ -697,6 +767,7 @@ impl JcodeManager {
             std::process::id(),
             self.event_sequence.fetch_add(1, Ordering::Relaxed) + 1
         );
+        self.evict_stale_state();
         self.batches.lock().map_err(|_| "JCode batch registry lock poisoned")?.insert(
             batch_id.clone(),
             JcodeBatchRecord {
@@ -705,6 +776,7 @@ impl JcodeManager {
                 session_ids: session_ids.clone(),
                 results: Vec::new(),
                 cancel_requested: false,
+                created_at: Instant::now(),
             },
         );
 
@@ -776,8 +848,23 @@ impl JcodeManager {
         }))
     }
 
+    /// Drop bookkeeping entries untouched for STATE_TTL_SECS so the agent and
+    /// batch registries cannot grow without bound across long uptimes.
+    /// Batches finish well inside the TTL because every turn is time-bounded.
+    fn evict_stale_state(&self) {
+        let Some(cutoff) = Instant::now().checked_sub(Duration::from_secs(STATE_TTL_SECS)) else {
+            return;
+        };
+        if let Ok(mut agents) = self.agents.lock() {
+            agents.retain(|_, metadata| metadata.last_active > cutoff);
+        }
+        if let Ok(mut batches) = self.batches.lock() {
+            batches.retain(|_, batch| batch.created_at > cutoff);
+        }
+    }
+
     pub async fn sessions(&self) -> Result<Value, String> {
-        let runtime = self.client()?;
+        let runtime = self.ensure_client().await?;
         tokio::task::spawn_blocking(move || {
             let sessions = runtime.client.list_sessions()
                 .map_err(|e| format!("list JCode sessions: {e}"))?;
@@ -837,7 +924,7 @@ fn runtime_is_alive(runtime: &JcodeRuntime) -> bool {
     process_alive && runtime.client.ping().is_ok()
 }
 
-fn stop_registered_daemon(home: &Path) {
+fn stop_registered_daemon(home: &Path, expected_binary: &Path) {
     let runtime_dir = home.join("run");
     let expected_socket = runtime_dir.join("jcode.sock");
     let registry_path = home.join("servers.json");
@@ -850,9 +937,14 @@ fn stop_registered_daemon(home: &Path) {
         if Path::new(socket) != expected_socket || pid <= 1 || pid > i32::MAX as i64 {
             continue;
         }
+        // Never signal a PID we have not verified as the expected binary: a
+        // stale registry could otherwise point at an unrelated process.
+        let pid = pid as i32;
+        if !process_matches_binary(pid, expected_binary) {
+            continue;
+        }
         #[cfg(unix)]
         {
-            let pid = pid as i32;
             unsafe {
                 if libc::kill(-pid, libc::SIGTERM) != 0 {
                     libc::kill(pid, libc::SIGTERM);
@@ -884,6 +976,51 @@ fn stop_registered_daemon(home: &Path) {
 #[cfg(unix)]
 fn process_exists(pid: i32) -> bool {
     unsafe { libc::kill(pid, 0) == 0 }
+}
+
+/// Verify that `pid` currently runs `expected_binary` (or a binary with the
+/// same file name) before any signal is sent. Unverifiable PIDs are skipped.
+#[cfg(unix)]
+fn process_matches_binary(pid: i32, expected_binary: &Path) -> bool {
+    let Ok(exe) = std::fs::read_link(format!("/proc/{pid}/exe")) else {
+        return false;
+    };
+    exe == expected_binary
+        || (exe.file_name().is_some() && exe.file_name() == expected_binary.file_name())
+}
+
+#[cfg(windows)]
+fn process_matches_binary(pid: i32, expected_binary: &Path) -> bool {
+    let Ok(output) = Command::new("powershell")
+        .args([
+            "-NoProfile",
+            "-Command",
+            &format!("(Get-Process -Id {pid} -ErrorAction SilentlyContinue).Path"),
+        ])
+        .output()
+    else {
+        return false;
+    };
+    let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if path.is_empty() {
+        return false;
+    }
+    let process_path = PathBuf::from(path);
+    process_path == expected_binary
+        || (process_path.file_name().is_some() && process_path.file_name() == expected_binary.file_name())
+}
+
+/// Route a spawned process stream into an append-only log file so failures
+/// stay diagnosable after the fact.
+fn file_log(dir: &Path, file_name: &str) -> Result<Stdio, String> {
+    let logs_dir = dir.join("logs");
+    std::fs::create_dir_all(&logs_dir).map_err(|e| format!("create JCode log directory: {e}"))?;
+    let file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(logs_dir.join(file_name))
+        .map_err(|e| format!("open JCode log file: {e}"))?;
+    Ok(Stdio::from(file))
 }
 
 fn tools_for_turn(citadel_ready: bool, allow_tools: bool) -> ToolConfiguration {
@@ -977,17 +1114,26 @@ fn execute_readonly_tool(root: &Path, name: &str, input: &Value) -> Result<Strin
                 return Err("workspace_list requires a directory".into());
             }
             let mut entries = Vec::new();
+            let mut hidden_entries = 0usize;
             for entry in std::fs::read_dir(&target).map_err(|e| format!("list workspace directory: {e}"))? {
                 let entry = entry.map_err(|e| format!("read workspace entry: {e}"))?;
                 let file_type = entry.file_type().map_err(|e| format!("read entry type: {e}"))?;
-                if file_type.is_symlink() || is_sensitive_workspace_path(&entry.path()) { continue; }
+                if file_type.is_symlink() || is_sensitive_workspace_path(&entry.path()) {
+                    hidden_entries += 1;
+                    continue;
+                }
                 entries.push(json!({
                     "name": entry.file_name().to_string_lossy(),
                     "kind": if file_type.is_dir() { "directory" } else if file_type.is_file() { "file" } else { "other" }
                 }));
                 if entries.len() >= 200 { break; }
             }
-            serde_json::to_string(&entries).map_err(|e| format!("serialize directory listing: {e}"))
+            // Report how many entries were withheld (never their names) so
+            // callers can tell a filtered listing from an empty directory.
+            serde_json::to_string(&json!({
+                "entries": entries,
+                "hidden_entries": hidden_entries
+            })).map_err(|e| format!("serialize directory listing: {e}"))
         }
         _ => Err("unknown restricted JCode tool".into()),
     }
@@ -1030,12 +1176,18 @@ fn redact_sensitive_content(input: &str) -> String {
                 .expect("valid provider token redaction regex"),
             Regex::new(r"(?s)-----BEGIN [A-Z ]*PRIVATE KEY-----.*?-----END [A-Z ]*PRIVATE KEY-----")
                 .expect("valid private key block redaction regex"),
+            Regex::new(r"eyJ[A-Za-z0-9_-]{10,}.[A-Za-z0-9_-]{10,}.[A-Za-z0-9_-]{10,}")
+                .expect("valid bare JWT redaction regex"),
+            Regex::new(r"1//[A-Za-z0-9_-]{20,}")
+                .expect("valid Google refresh token redaction regex"),
         ]
     });
     let output = patterns[0].replace_all(input, "$1[REDACTED]");
     let output = patterns[1].replace_all(&output, "$1[REDACTED]");
     let output = patterns[2].replace_all(&output, "[REDACTED]");
-    patterns[3].replace_all(&output, "[REDACTED PRIVATE KEY]").into_owned()
+    let output = patterns[3].replace_all(&output, "[REDACTED PRIVATE KEY]");
+    let output = patterns[4].replace_all(&output, "[REDACTED TOKEN]");
+    patterns[5].replace_all(&output, "[REDACTED TOKEN]").into_owned()
 }
 
 fn search_workspace(root: &Path, target: &Path, input: &Value) -> Result<String, String> {
@@ -1194,16 +1346,33 @@ mod tests {
     }
 
     #[test]
-    fn event_ring_is_bounded_and_sequence_ordered() {
+    fn event_retention_is_bounded_per_session_and_sequence_ordered() {
         let events = Arc::new(Mutex::new(VecDeque::new()));
+        let counts = Arc::new(Mutex::new(HashMap::new()));
         let sequence = Arc::new(AtomicU64::new(0));
-        for index in 0..(MAX_RETAINED_EVENTS + 5) {
-            JcodeManager::push_event(&events, &sequence, "session", "text_delta", Some(index.to_string()), None);
+        for index in 0..(MAX_RETAINED_EVENTS_PER_SESSION + 5) {
+            JcodeManager::push_event(&events, &counts, &sequence, "session-a", "text_delta", Some(index.to_string()), None);
+        }
+        for index in 0..5 {
+            JcodeManager::push_event(&events, &counts, &sequence, "session-b", "text_delta", Some(index.to_string()), None);
         }
         let retained = events.lock().unwrap();
-        assert_eq!(retained.len(), MAX_RETAINED_EVENTS);
+        assert_eq!(retained.len(), MAX_RETAINED_EVENTS_PER_SESSION + 5);
+        let session_a = retained.iter().filter(|event| event.session_id == "session-a").count();
+        assert_eq!(session_a, MAX_RETAINED_EVENTS_PER_SESSION);
+        // A busy session must not evict another session's events.
+        assert!(retained.iter().any(|event| event.session_id == "session-b"));
         assert_eq!(retained.front().unwrap().sequence, 6);
-        assert_eq!(retained.back().unwrap().sequence, (MAX_RETAINED_EVENTS + 5) as u64);
+        assert_eq!(retained.back().unwrap().sequence, (MAX_RETAINED_EVENTS_PER_SESSION + 10) as u64);
+    }
+
+    #[test]
+    fn redaction_covers_bare_jwt_and_google_refresh_tokens() {
+        let input = "token eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.e30.abc123def456 and 1//0gWhAbCdEfGhIjKlMnOpQrStUvWxYz123456";
+        let output = redact_sensitive_content(input);
+        assert!(!output.contains("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9"));
+        assert!(!output.contains("1//0gWhAbCdEfGhIjKlMnOpQrStUvWxYz"));
+        assert!(output.contains("[REDACTED TOKEN]"));
     }
 }
 

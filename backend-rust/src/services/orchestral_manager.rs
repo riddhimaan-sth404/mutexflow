@@ -30,6 +30,7 @@ pub struct OrchestralManager {
     admin_key: Option<String>,
     core_url: String,
     worker_url: String,
+    worker_token: String,
     enabled: bool,
 }
 
@@ -50,6 +51,12 @@ impl OrchestralManager {
             &std::env::var("ORCHESTRAL_WORKER_URL").unwrap_or_default(),
             "http://127.0.0.1:8090",
         );
+        // The restricted worker authenticates with its own token. It never
+        // receives the Citadel admin key.
+        let worker_token = std::env::var("MUTEXFLOW_WORKER_TOKEN")
+            .ok()
+            .filter(|value| value.len() >= 16)
+            .unwrap_or_else(crate::routes::auth::generate_local_token);
 
         Self {
             processes: Mutex::new(RuntimeProcesses {
@@ -64,6 +71,7 @@ impl OrchestralManager {
             admin_key,
             core_url,
             worker_url,
+            worker_token,
             enabled,
         }
     }
@@ -93,7 +101,7 @@ impl OrchestralManager {
             PathBuf::from(binary)
         } else {
             let binary_name = if cfg!(windows) { "orchestral-core.exe" } else { "orchestral-core" };
-            let binary = core_dir.join("target").join("debug").join(binary_name);
+            let binary = core_dir.join("target").join("release").join(binary_name);
             let mut build_command = Command::new("cargo");
             build_command.kill_on_drop(true);
             build_command.env_clear();
@@ -104,11 +112,11 @@ impl OrchestralManager {
                 }
             }
             let build = build_command
-                .args(["build", "--manifest-path"])
+                .args(["build", "--release", "--manifest-path"])
                 .arg(&core_manifest)
                 .current_dir(&self.root)
                 .output();
-            match tokio::time::timeout(Duration::from_secs(180), build).await {
+            match tokio::time::timeout(Duration::from_secs(900), build).await {
                 Ok(Ok(output)) if output.status.success() => {}
                 Ok(Ok(output)) => {
                     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -116,7 +124,7 @@ impl OrchestralManager {
                     return Err(format!("build Orchestral Citadel failed: {tail}"));
                 }
                 Ok(Err(error)) => return Err(format!("run Cargo to build Orchestral Citadel: {error}")),
-                Err(_) => return Err("Orchestral Citadel build timed out after 180 seconds".to_string()),
+                Err(_) => return Err("Orchestral Citadel release build timed out after 900 seconds; set ORCHESTRAL_CORE_BIN to a prebuilt binary to skip the build".to_string()),
             }
             binary
         };
@@ -131,8 +139,8 @@ impl OrchestralManager {
             .env("ORCHESTRAL_BIND_ADDR", "127.0.0.1")
             .env("ORCHESTRAL_ADMIN_KEY", admin_key)
             .env("ORCHESTRAL_DB_PATH", data_dir.join("citadel.sqlite").to_string_lossy().to_string())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null());
+            .stdout(sidecar_log(&data_dir, "citadel.out.log")?)
+            .stderr(sidecar_log(&data_dir, "citadel.err.log")?);
 
         if let Ok(secret) = std::env::var("ORCHESTRAL_JWT_SECRET") {
             if !secret.trim().is_empty() {
@@ -162,10 +170,11 @@ impl OrchestralManager {
             .current_dir(&worker_dir)
             .env("ORCHESTRAL_WORKER_PORT", port_from_url(&self.worker_url).unwrap_or(8090).to_string())
             .env("ORCHESTRAL_CORE_URL", &self.core_url)
-            .env("ORCHESTRAL_ADMIN_KEY", admin_key)
+            .env("MUTEXFLOW_WORKER_TOKEN", &self.worker_token)
+            .env("MUTEXFLOW_BACKEND_URL", format!("http://127.0.0.1:{}", std::env::var("PORT").ok().and_then(|value| value.parse::<u16>().ok()).unwrap_or(3001)))
             .env("MUTEXFLOW_WORKSPACE_ROOT", &self.root)
-            .stdout(Stdio::null())
-            .stderr(Stdio::null());
+            .stdout(sidecar_log(&data_dir, "worker.out.log")?)
+            .stderr(sidecar_log(&data_dir, "worker.err.log")?);
 
         let mut worker = match worker_command.spawn() {
             Ok(child) => child,
@@ -299,7 +308,7 @@ impl OrchestralManager {
         if !self.health(&self.worker_url).await || !self.health(&self.core_url).await {
             return Err("Orchestral runtime is not healthy".to_string());
         }
-        let key = self.admin_key.as_deref().unwrap_or_default();
+        let key = self.worker_token.as_str();
         let response = self.client.post(format!("{}/v1/jobs/local-analysis", self.worker_url))
             .header("X-MutexFlow-Worker-Token", key)
             .json(&json!({ "workspace": workspace }))
@@ -316,7 +325,7 @@ impl OrchestralManager {
         if !is_safe_job_id(job_id) {
             return Err("Invalid job identifier".to_string());
         }
-        let key = self.admin_key.as_deref().unwrap_or_default();
+        let key = self.worker_token.as_str();
         let response = self.client.get(format!("{}/v1/jobs/{}", self.worker_url, job_id))
             .header("X-MutexFlow-Worker-Token", key)
             .send().await.map_err(|e| format!("Local analysis worker request failed: {e}"))?;
@@ -332,7 +341,7 @@ impl OrchestralManager {
         if !is_safe_job_id(job_id) {
             return Err("Invalid job identifier".to_string());
         }
-        let key = self.admin_key.as_deref().unwrap_or_default();
+        let key = self.worker_token.as_str();
         let response = self.client
             .post(format!("{}/v1/jobs/{}/cancel", self.worker_url, job_id))
             .header("X-MutexFlow-Worker-Token", key)
@@ -442,4 +451,17 @@ fn inherit_safe_runtime_environment(command: &mut Command) {
             command.env(name, value);
         }
     }
+}
+
+/// Route sidecar stdout/stderr into per-process log files under the
+/// Orchestral data directory so crashes stay diagnosable after the fact.
+fn sidecar_log(data_dir: &PathBuf, file_name: &str) -> Result<Stdio, String> {
+    let logs_dir = data_dir.join("logs");
+    std::fs::create_dir_all(&logs_dir).map_err(|e| format!("create Orchestral log directory: {e}"))?;
+    let file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(logs_dir.join(file_name))
+        .map_err(|e| format!("open Orchestral sidecar log: {e}"))?;
+    Ok(Stdio::from(file))
 }
