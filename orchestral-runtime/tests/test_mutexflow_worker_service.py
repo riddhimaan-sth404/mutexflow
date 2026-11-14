@@ -1,6 +1,7 @@
 import os
 import tempfile
 import threading
+import time
 import unittest
 from pathlib import Path
 
@@ -70,6 +71,55 @@ class LocalWorkspaceBoundaryTests(unittest.TestCase):
         findings = NativeSecretScannerTool()._scan_text(f"TOKEN={secret}", "sample.py")
         self.assertTrue(findings)
         self.assertNotIn(secret, findings[0]["preview"])
+
+
+
+class SeverityMappingTests(unittest.TestCase):
+    def test_high_confidence_provider_credentials_map_to_high(self):
+        for pattern in ("AWS Access Key", "AWS Secret Key", "Generic Private Key", "GitHub Personal Token"):
+            severity, cvss = service._severity_for(pattern)
+            self.assertEqual(severity, "HIGH")
+            self.assertGreaterEqual(cvss, 7.0)
+
+    def test_scoped_or_short_lived_credentials_map_to_medium(self):
+        for pattern in ("Google Cloud API Key", "Slack Webhook / Token", "JWT Token"):
+            severity, cvss = service._severity_for(pattern)
+            self.assertEqual(severity, "MEDIUM")
+            self.assertLess(cvss, 7.0)
+
+    def test_unknown_patterns_fall_back_to_low(self):
+        severity, cvss = service._severity_for("Some New Pattern")
+        self.assertEqual(severity, "LOW")
+        self.assertLess(cvss, 5.0)
+
+
+class JobRegistryTTLTests(unittest.TestCase):
+    def tearDown(self):
+        with service._jobs_lock:
+            service._jobs.clear()
+            service._cancel_events.clear()
+
+    def test_finished_jobs_are_pruned_after_ttl(self):
+        job_id = "11111111-2222-3333-4444-555555555555"
+        with service._jobs_lock:
+            service._jobs[job_id] = {
+                "job_id": job_id,
+                "status": "completed",
+                "finished_at": time.monotonic() - service.JOB_TTL_SECONDS - 1,
+            }
+        service._prune_stale_jobs()
+        self.assertNotIn(job_id, service._jobs)
+
+    def test_active_jobs_are_never_pruned(self):
+        job_id = "99999999-8888-7777-6666-555555555555"
+        with service._jobs_lock:
+            service._jobs[job_id] = {
+                "job_id": job_id,
+                "status": "running",
+                "finished_at": time.monotonic() - service.JOB_TTL_SECONDS - 1,
+            }
+        service._prune_stale_jobs()
+        self.assertIn(job_id, service._jobs)
 
 
 if __name__ == "__main__":

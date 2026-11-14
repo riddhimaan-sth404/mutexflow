@@ -9,6 +9,8 @@ import hmac
 import json
 import os
 import threading
+import time
+import urllib.request
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -19,11 +21,31 @@ from orchestral_worker.tools.secret_scanner import NativeSecretScannerTool
 
 HOST = "127.0.0.1"
 PORT = int(os.environ.get("ORCHESTRAL_WORKER_PORT", "8090"))
-TOKEN = os.environ.get("ORCHESTRAL_ADMIN_KEY", "")
-CORE_URL = os.environ.get("ORCHESTRAL_CORE_URL", "http://127.0.0.1:8088")
+TOKEN = os.environ.get("MUTEXFLOW_WORKER_TOKEN", "")
+BACKEND_URL = os.environ.get("MUTEXFLOW_BACKEND_URL", "http://127.0.0.1:3001").rstrip("/")
 WORKSPACE_ROOT = Path(os.environ.get("MUTEXFLOW_WORKSPACE_ROOT", os.getcwd())).resolve()
 AGENT_ID = "mutexflow-local-analysis"
 MAX_BODY = 16 * 1024
+JOB_TTL_SECONDS = float(os.environ.get("MUTEXFLOW_JOB_TTL_SECONDS", "3600"))
+ACTIVE_STATUSES = ("queued", "running", "cancel_requested")
+
+# Findings severity is derived from the matched pattern instead of a blanket
+# CRITICAL/9.0: long-lived provider credentials rank highest, scoped or
+# short-lived credentials rank lower, and unknown patterns stay conservative.
+SEVERITY_BY_PATTERN: dict[str, tuple[str, float]] = {
+    "AWS Access Key": ("HIGH", 7.5),
+    "AWS Secret Key": ("HIGH", 7.5),
+    "Generic Private Key": ("HIGH", 7.5),
+    "GitHub Personal Token": ("HIGH", 7.5),
+    "Google Cloud API Key": ("MEDIUM", 5.5),
+    "Slack Webhook / Token": ("MEDIUM", 5.0),
+    "JWT Token": ("MEDIUM", 5.0),
+}
+FALLBACK_SEVERITY: tuple[str, float] = ("LOW", 3.1)
+
+
+def _severity_for(pattern_type: str) -> tuple[str, float]:
+    return SEVERITY_BY_PATTERN.get(pattern_type, FALLBACK_SEVERITY)
 
 _jobs: dict[str, dict[str, Any]] = {}
 _jobs_lock = threading.Lock()
@@ -49,6 +71,38 @@ def _resolve_workspace(relative: str) -> Path:
     return resolved
 
 
+def _submit_finding(finding: dict[str, Any]) -> None:
+    """Submit one finding through the MutexFlow backend proxy. The worker
+    authenticates with its restricted token and never holds the Citadel
+    admin key; the backend attaches the privileged key server-side."""
+    body = json.dumps({"findings": finding}, separators=(",", ":")).encode("utf-8")
+    request = urllib.request.Request(
+        f"{BACKEND_URL}/api/v1/orchestral/findings/submit",
+        data=body,
+        method="POST",
+        headers={
+            "Content-Type": "application/json",
+            "X-MutexFlow-Worker-Token": TOKEN,
+        },
+    )
+    with urllib.request.urlopen(request, timeout=30):
+        pass
+
+
+def _prune_stale_jobs() -> None:
+    """Drop finished job records and their cancel events after the TTL so the
+    registries cannot grow without bound over a long-lived session."""
+    now = time.monotonic()
+    with _jobs_lock:
+        for job_id in list(_jobs.keys()):
+            job = _jobs[job_id]
+            if job.get("status") in ACTIVE_STATUSES:
+                continue
+            if now - job.get("finished_at", now) > JOB_TTL_SECONDS:
+                _jobs.pop(job_id, None)
+                _cancel_events.pop(job_id, None)
+
+
 def _run_job(job_id: str, relative: str, cancel_event: threading.Event) -> None:
     with _jobs_lock:
         _jobs[job_id]["status"] = "running"
@@ -68,19 +122,20 @@ def _run_job(job_id: str, relative: str, cancel_event: threading.Event) -> None:
                 source = str(Path(source).resolve().relative_to(WORKSPACE_ROOT))
             except (ValueError, OSError):
                 source = Path(source).name
+            severity, cvss = _severity_for(str(item.get("type", "")))
             findings.append({
                 "title": str(item.get("type", "Potential secret detected")),
                 "target": source,
-                "severity": "CRITICAL",
-                "cvss": 9.0,
+                "severity": severity,
+                "cvss": cvss,
                 "description": "A possible hard-coded credential pattern was detected. The value is masked and is not included in this result.",
                 "evidence": str(item.get("preview", "masked")),
             })
 
-        # Persist each finding through Citadel's authenticated API. No secret
-        # material is transmitted; evidence contains only the scanner's mask.
-        from orchestral_worker.client import OrchestralClient
-        client = OrchestralClient(base_url=CORE_URL, api_key=TOKEN)
+        # Persist each finding through the MutexFlow backend proxy. The worker
+        # authenticates with its restricted token and never holds the Citadel
+        # admin key; the backend attaches the privileged key server-side. No
+        # secret material is transmitted; evidence contains only the mask.
         submitted = 0
         for finding in findings:
             payload = {
@@ -94,12 +149,13 @@ def _run_job(job_id: str, relative: str, cancel_event: threading.Event) -> None:
                 "evidence": finding["evidence"],
                 "status": "discovered",
             }
-            client.submit_finding(payload)
+            _submit_finding(payload)
             submitted += 1
 
         with _jobs_lock:
             _jobs[job_id].update({
                 "status": "cancelled" if result.get("status") == "cancelled" else "completed",
+                "finished_at": time.monotonic(),
                 "workspace": relative,
                 "scanned_files_findings": len(findings),
                 "findings_submitted": submitted,
@@ -107,7 +163,7 @@ def _run_job(job_id: str, relative: str, cancel_event: threading.Event) -> None:
             })
     except Exception as exc:  # surfaced as a bounded job error
         with _jobs_lock:
-            _jobs[job_id].update({"status": "failed", "error": f"{type(exc).__name__}: {exc}"})
+            _jobs[job_id].update({"status": "failed", "finished_at": time.monotonic(), "error": f"{type(exc).__name__}: {exc}"})
     finally:
         with _jobs_lock:
             _cancel_events.pop(job_id, None)
@@ -140,6 +196,7 @@ class Handler(BaseHTTPRequestHandler):
         if not self._authorized():
             self._send(401, {"error": "unauthorized"})
             return
+        _prune_stale_jobs()
         if self.path.startswith("/v1/jobs/"):
             job_id = self.path.rsplit("/", 1)[-1]
             with _jobs_lock:
@@ -188,6 +245,7 @@ class Handler(BaseHTTPRequestHandler):
             self._send(400, {"error": str(exc)})
             return
 
+        _prune_stale_jobs()
         job_id = str(uuid.uuid4())
         with _jobs_lock:
             _jobs[job_id] = {"job_id": job_id, "status": "queued", "workspace": relative}
@@ -202,7 +260,7 @@ class Handler(BaseHTTPRequestHandler):
 
 def main() -> None:
     if not TOKEN:
-        raise SystemExit("ORCHESTRAL_ADMIN_KEY must be configured before starting the worker")
+        raise SystemExit("MUTEXFLOW_WORKER_TOKEN must be configured before starting the worker")
     WORKSPACE_ROOT.mkdir(parents=True, exist_ok=True)
     server = ThreadingHTTPServer((HOST, PORT), Handler)
     server.daemon_threads = True

@@ -118,6 +118,8 @@ jobs:
           export PYTHON=python3
           export BIND_ADDR=127.0.0.1
           export PORT=3001
+          export MUTEXFLOW_API_TOKEN="ci-local-api-token-0123456789abcdef"
+          export MUTEXFLOW_WORKER_TOKEN="ci-worker-token-0123456789abcdef"
 
           ./backend-rust/target/debug/backend-rust > "$RUNNER_TEMP/mutexflow-backend.log" 2>&1 &
           BACKEND_PID=$!
@@ -144,13 +146,19 @@ jobs:
           done
           test "$ready" = true
 
-          curl --fail-with-body --silent --show-error http://127.0.0.1:3001/api/v1/orchestral/status             | python -c 'import json,sys; d=json.load(sys.stdin); assert d["core_healthy"], d; assert d["worker_healthy"], d'
-          curl --fail-with-body --silent --show-error http://127.0.0.1:3001/api/v1/jcode/health             | python -c 'import json,sys; d=json.load(sys.stdin); assert not d["enabled"], d; assert not d["connected"], d'
+          # The orchestral/JCode routers must reject unauthenticated callers.
+          unauth_status=$(curl --silent --show-error -o /dev/null -w '%{http_code}' http://127.0.0.1:3001/api/v1/orchestral/status)
+          test "$unauth_status" = "401"
+          unauth_jcode=$(curl --silent --show-error -o /dev/null -w '%{http_code}' http://127.0.0.1:3001/api/v1/jcode/health)
+          test "$unauth_jcode" = "401"
 
-          job_json=$(curl --fail-with-body --silent --show-error -X POST http://127.0.0.1:3001/api/v1/orchestral/jobs/local-analysis             -H "Content-Type: application/json" -d '{"workspace":"backend-rust"}')
+          curl --fail-with-body --silent --show-error -H "X-MutexFlow-Token: $MUTEXFLOW_API_TOKEN" http://127.0.0.1:3001/api/v1/orchestral/status             | python -c 'import json,sys; d=json.load(sys.stdin); assert d["core_healthy"], d; assert d["worker_healthy"], d'
+          curl --fail-with-body --silent --show-error -H "X-MutexFlow-Token: $MUTEXFLOW_API_TOKEN" http://127.0.0.1:3001/api/v1/jcode/health             | python -c 'import json,sys; d=json.load(sys.stdin); assert not d["enabled"], d; assert not d["connected"], d'
+
+          job_json=$(curl --fail-with-body --silent --show-error -X POST -H "X-MutexFlow-Token: $MUTEXFLOW_API_TOKEN" http://127.0.0.1:3001/api/v1/orchestral/jobs/local-analysis             -H "Content-Type: application/json" -d '{"workspace":"backend-rust"}')
           job_id=$(printf '%s' "$job_json" | python -c 'import json,sys; print(json.load(sys.stdin)["job_id"])')
           for _ in $(seq 1 90); do
-            job_json=$(curl --fail-with-body --silent --show-error "http://127.0.0.1:3001/api/v1/orchestral/jobs/$job_id")
+            job_json=$(curl --fail-with-body --silent --show-error -H "X-MutexFlow-Token: $MUTEXFLOW_API_TOKEN" "http://127.0.0.1:3001/api/v1/orchestral/jobs/$job_id")
             job_status=$(printf '%s' "$job_json" | python -c 'import json,sys; print(json.load(sys.stdin)["status"])')
             if [ "$job_status" = "completed" ]; then break; fi
             if [ "$job_status" = "failed" ] || [ "$job_status" = "cancelled" ]; then
@@ -161,24 +169,24 @@ jobs:
           done
           test "$job_status" = "completed"
 
-          curl --fail-with-body --silent --show-error http://127.0.0.1:3001/api/v1/orchestral/agents             | python -c 'import json,sys; assert isinstance(json.load(sys.stdin), list)'
-          curl --fail-with-body --silent --show-error http://127.0.0.1:3001/api/v1/orchestral/findings             | python -c 'import json,sys; assert isinstance(json.load(sys.stdin), list)'
+          curl --fail-with-body --silent --show-error -H "X-MutexFlow-Token: $MUTEXFLOW_API_TOKEN" http://127.0.0.1:3001/api/v1/orchestral/agents             | python -c 'import json,sys; assert isinstance(json.load(sys.stdin), list)'
+          curl --fail-with-body --silent --show-error -H "X-MutexFlow-Token: $MUTEXFLOW_API_TOKEN" http://127.0.0.1:3001/api/v1/orchestral/findings             | python -c 'import json,sys; assert isinstance(json.load(sys.stdin), list)'
 
           hitl_json=$(curl --fail-with-body --silent --show-error -X POST http://127.0.0.1:8088/api/v1/hitl/pending             -H "X-Orchestral-API-Key: $ORCHESTRAL_ADMIN_KEY"             -H "Content-Type: application/json"             -d '{"agent_id":"ci-approval-agent","tool_name":"manual-review","target":"local-workspace","command_preview":"CI approval-gate verification","risk_tier":"active"}')
           approval_id=$(printf '%s' "$hitl_json" | python -c 'import json,sys; print(json.load(sys.stdin)["id"])')
-          deny_json=$(curl --silent --show-error "http://127.0.0.1:3001/api/v1/orchestral/approvals/$approval_id/deny" -X POST)
+          deny_json=$(curl --silent --show-error -H "X-MutexFlow-Token: $MUTEXFLOW_API_TOKEN" "http://127.0.0.1:3001/api/v1/orchestral/approvals/$approval_id/deny" -X POST)
           echo "$deny_json"
           printf '%s' "$deny_json" | python -c 'import json,sys; assert json.load(sys.stdin)["status"] == "denied"'
 
           approve_hitl_json=$(curl --fail-with-body --silent --show-error -X POST http://127.0.0.1:8088/api/v1/hitl/pending             -H "X-Orchestral-API-Key: $ORCHESTRAL_ADMIN_KEY"             -H "Content-Type: application/json"             -d '{"agent_id":"ci-approval-agent-2","tool_name":"manual-review","target":"local-workspace","command_preview":"CI approval-path verification","risk_tier":"active"}')
           approve_id=$(printf '%s' "$approve_hitl_json" | python -c 'import json,sys; print(json.load(sys.stdin)["id"])')
-          approve_json=$(curl --silent --show-error "http://127.0.0.1:3001/api/v1/orchestral/approvals/$approve_id/approve" -X POST)
+          approve_json=$(curl --silent --show-error -H "X-MutexFlow-Token: $MUTEXFLOW_API_TOKEN" "http://127.0.0.1:3001/api/v1/orchestral/approvals/$approve_id/approve" -X POST)
           echo "$approve_json"
           printf '%s' "$approve_json" | python -c 'import json,sys; assert json.load(sys.stdin)["status"] == "approved"'
 
           curl --fail-with-body --silent --show-error -X POST http://127.0.0.1:8088/api/v1/audit/events             -H "X-Orchestral-API-Key: $ORCHESTRAL_ADMIN_KEY"             -H "Content-Type: application/json"             -d '{"actor":"ci-jcode-test","action":"jcode_tool_requested","details":"read-only tool audit integration test"}'
           curl --fail-with-body --silent --show-error "http://127.0.0.1:8088/api/v1/audit/logs?limit=20"             -H "X-Orchestral-API-Key: $ORCHESTRAL_ADMIN_KEY"             | python -c 'import json,sys; logs=json.load(sys.stdin); assert any(x["action"] == "jcode_tool_requested" and x["actor"] == "ci-jcode-test" for x in logs), logs'
-          curl --fail-with-body --silent --show-error http://127.0.0.1:3001/api/v1/orchestral/audit?limit=20             | python -c 'import json,sys; assert isinstance(json.load(sys.stdin), list)'
+          curl --fail-with-body --silent --show-error -H "X-MutexFlow-Token: $MUTEXFLOW_API_TOKEN" http://127.0.0.1:3001/api/v1/orchestral/audit?limit=20             | python -c 'import json,sys; assert isinstance(json.load(sys.stdin), list)'
 
           kill -INT "$BACKEND_PID"
           wait "$BACKEND_PID"
