@@ -374,7 +374,7 @@ impl JcodeManager {
         role: &str,
         objective: &str,
     ) -> Result<Value, String> {
-        if !matches!(role, "workspace_analyst" | "security_reviewer" | "dependency_reviewer" | "documentation_reviewer") {
+        if !is_supported_agent_role(role) {
             return Err("unsupported agent role".into());
         }
         if objective.trim().is_empty() || objective.len() > MAX_PROMPT_BYTES {
@@ -663,7 +663,7 @@ impl JcodeManager {
         role: &str,
         prompts: Vec<String>,
     ) -> Result<Value, String> {
-        if !matches!(role, "workspace_analyst" | "security_reviewer" | "dependency_reviewer" | "documentation_reviewer") {
+        if !is_supported_agent_role(role) {
             return Err("unsupported agent role for batch".into());
         }
         if prompts.is_empty() || prompts.len() > MAX_CONCURRENT_TURNS {
@@ -782,6 +782,10 @@ impl JcodeManager {
             serde_json::to_value(sessions).map_err(|e| format!("serialize JCode sessions: {e}"))
         }).await.map_err(|e| format!("JCode session listing failed: {e}"))?
     }
+}
+
+fn is_supported_agent_role(role: &str) -> bool {
+    matches!(role, "workspace_analyst" | "security_reviewer" | "dependency_reviewer" | "documentation_reviewer")
 }
 
 fn agent_system_prompt(role: &str, objective: &str) -> String {
@@ -1076,6 +1080,15 @@ mod tests {
     use super::*;
 
     #[test]
+    fn only_fixed_specialist_roles_are_accepted() {
+        for role in ["workspace_analyst", "security_reviewer", "dependency_reviewer", "documentation_reviewer"] {
+            assert!(is_supported_agent_role(role));
+        }
+        assert!(!is_supported_agent_role("shell_operator"));
+        assert!(!is_supported_agent_role("unknown"));
+    }
+
+    #[test]
     fn workspace_paths_must_be_relative_and_confined() {
         assert!(validate_relative_workspace(".").is_ok());
         assert!(validate_relative_workspace("src/project").is_ok());
@@ -1091,6 +1104,10 @@ mod tests {
         std::fs::create_dir_all(root.join("src")).expect("create source fixture");
         std::fs::write(root.join("src/main.rs"), "fn main() { println!(\"needle\"); }").expect("write source");
         std::fs::write(root.join(".env"), "needle=secret").expect("write sensitive fixture");
+        std::fs::create_dir_all(root.join(".git")).expect("create VCS metadata fixture");
+        std::fs::write(root.join(".git/config"), "url=https://user:token@example.invalid/repo").expect("write VCS metadata fixture");
+        std::fs::create_dir_all(root.join(".mutexflow/jcode")).expect("create runtime state fixture");
+        std::fs::write(root.join(".mutexflow/jcode/credentials.json"), "secret").expect("write runtime credential fixture");
         let result = super::execute_readonly_tool(&root, "workspace_search", &serde_json::json!({"query":"needle"}))
             .expect("search workspace");
         assert!(result.contains("src/main.rs"));
@@ -1100,6 +1117,11 @@ mod tests {
         assert!(is_sensitive_workspace_path(Path::new(".ssh/id_ed25519")));
         let blocked = super::execute_readonly_tool(&root, "workspace_read", &serde_json::json!({"path":".env"}));
         assert!(blocked.is_err());
+        let blocked_git = super::execute_readonly_tool(&root, "workspace_read", &serde_json::json!({"path":".git/config"}));
+        assert!(blocked_git.is_err());
+        let listing = super::execute_readonly_tool(&root, "workspace_list", &serde_json::json!({"path":"."})).expect("list safe workspace entries");
+        assert!(!listing.contains(".git"));
+        assert!(!listing.contains(".mutexflow"));
         let _ = std::fs::remove_dir_all(&root);
     }
 

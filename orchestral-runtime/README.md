@@ -19,11 +19,7 @@ Avalonia desktop remains the product UI.
 
 ## Integration status
 
-**Source imported; runtime not yet wired into MutexFlow.** The Rust core and Python
-worker retain their separate package boundaries. The next stage is to establish
-build/test baselines, then introduce a versioned adapter in the existing MutexFlow
-backend. Do not assume that the imported runtime is already launched by
-`run.bat` or invoked by the desktop app.
+**Managed integration is wired into MutexFlow.** The Rust Citadel core and restricted Python local-analysis worker are managed sidecars launched by the MutexFlow Rust backend. The backend also hosts the JCode Harness SDK adapter for specialist agent sessions, bounded concurrent batches, live events, cancellation, workspace confinement, and Citadel audit mediation. The existing Avalonia application is the user-facing dashboard. The imported general-purpose VigilEngine tool runtime remains preserved as source but is not exposed through the desktop adapter; active scanning, shell, writes, network, and MCP tools are intentionally not enabled.
 
 ## Upstream
 

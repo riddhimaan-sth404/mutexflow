@@ -145,6 +145,10 @@ At minimum, the backend uses port `3001` by default. Cloud Standard mode needs a
 
 Never commit `.env` files, API keys, OAuth secrets, or service-role credentials.
 
+#### Optional Orchestral + JCode agents
+
+To enable the managed Orchestral runtime, configure `ORCHESTRAL_ADMIN_KEY`, a stable `ORCHESTRAL_JWT_SECRET`, and `ORCHESTRAL_AUTOSTART=true`. Install a JCode executable built from the pinned upstream revision documented in [JCODE_INTEGRATION.md](JCODE_INTEGRATION.md), then set `JCODE_AUTOSTART=true` and `JCODE_BINARY` to its absolute path. Configure one of `JCODE_OPENAI_API_KEY`, `JCODE_ANTHROPIC_API_KEY`, `JCODE_OPENROUTER_API_KEY`, or `JCODE_GEMINI_API_KEY`; optionally set `JCODE_PROVIDER` and `JCODE_MODEL`. JCode remains disabled unless explicitly enabled and the backend binds to loopback. The Avalonia Orchestral dashboard exposes role-scoped sessions, live output, concurrent batches (up to eight agents), and cancellation. The agents are restricted to audited, read-only workspace tools.
+
 ### 3. Run the application on Windows
 
 The repository includes a Windows launcher:
