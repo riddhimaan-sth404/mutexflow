@@ -1081,7 +1081,7 @@ fn search_workspace(root: &Path, target: &Path, input: &Value) -> Result<String,
             for (line_index, line) in contents.lines().enumerate() {
                 let candidate = if case_sensitive { line.to_string() } else { line.to_lowercase() };
                 if candidate.contains(&needle) {
-                    let relative = path.strip_prefix(root).unwrap_or(&path).to_string_lossy();
+                    let relative = path.strip_prefix(root).unwrap_or(&path).to_string_lossy().replace('\\', "/");
                     matches.push(json!({
                         "path": relative,
                         "line": line_index + 1,
