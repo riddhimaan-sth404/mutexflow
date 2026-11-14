@@ -47,35 +47,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let orchestral = Arc::new(OrchestralManager::new(root.clone()));
     let jcode = Arc::new(backend_rust::services::jcode_manager::JcodeManager::new(root, orchestral.clone()));
-    // JCode startup blocks on process spawn and a socket-connect loop; keep it
-    // off the async reactor while the Orchestral runtime starts concurrently.
-    let jcode_for_startup = jcode.clone();
-    let jcode_startup = tokio::task::spawn_blocking(move || jcode_for_startup.start());
-    let (shutdown_tx, mut shutdown_rx) = tokio::sync::watch::channel(false);
-    tokio::spawn(async move {
-        shutdown_signal().await;
-        let _ = shutdown_tx.send(true);
-    });
-
-    tokio::select! {
-        result = orchestral.start() => {
-            if let Err(error) = result {
-                tracing::error!("[Orchestral] Runtime startup failed: {}", error);
-            }
-        }
-        changed = shutdown_rx.changed() => {
-            if changed.is_ok() {
-                info!("Shutdown signal received during Orchestral startup");
-            }
-            orchestral.shutdown().await;
-            return Ok(());
-        }
-    }
-
-    if let Err(error) = jcode_startup.await.unwrap_or_else(|error| Err(format!("join JCode startup task: {error}"))) {
-        tracing::warn!("[JCode] Runtime startup skipped: {}", error);
-    }
-
     let state = Arc::new(AppState { supabase, port, orchestral: orchestral.clone(), jcode: jcode.clone() });
 
     // The desktop talks to the backend directly (without browser CORS). For
@@ -119,6 +90,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("[MutexFlow Rust] Server listening on http://{}", addr);
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
+
+    // Serve the desktop API immediately. Building Citadel and starting JCode
+    // are independent background tasks; health endpoints report readiness
+    // while either runtime is still starting.
+    let orchestral_for_startup = orchestral.clone();
+    let orchestral_startup = tokio::spawn(async move {
+        if let Err(error) = orchestral_for_startup.start().await {
+            tracing::error!("[Orchestral] Runtime startup failed: {}", error);
+        }
+    });
+    let jcode_for_startup = jcode.clone();
+    let jcode_startup = tokio::task::spawn_blocking(move || jcode_for_startup.start());
+
+    let (shutdown_tx, mut shutdown_rx) = tokio::sync::watch::channel(false);
+    tokio::spawn(async move {
+        shutdown_signal().await;
+        let _ = shutdown_tx.send(true);
+    });
+
     let server_result = axum::serve(listener, app)
         .with_graceful_shutdown(async move {
             let _ = shutdown_rx.wait_for(|received| *received).await;
@@ -126,7 +116,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         })
         .await;
 
+    // Abort any still-starting Orchestral build; child processes use
+    // kill_on_drop and the manager's shutdown lock serializes cleanup.
+    orchestral_startup.abort();
+    let _ = orchestral_startup.await;
+    if let Err(error) = jcode_startup.await.unwrap_or_else(|error| Err(format!("join JCode startup task: {error}"))) {
+        tracing::warn!("[JCode] Runtime startup skipped: {}", error);
+    }
     orchestral.shutdown().await;
+    let jcode_for_shutdown = jcode.clone();
+    if let Err(error) = tokio::task::spawn_blocking(move || jcode_for_shutdown.shutdown()).await {
+        tracing::warn!("[JCode] Runtime shutdown task failed: {}", error);
+    }
     server_result?;
     Ok(())
 }

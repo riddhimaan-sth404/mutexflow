@@ -18,7 +18,7 @@ JCode is integrated as the Rust agent-session runtime behind MutexFlow and Orche
 
 ## End-to-end workflow
 
-1. The backend starts JCode's API bridge as an isolated child process with a dedicated `.mutexflow/jcode` home and local IPC socket.
+1. The backend binds its local HTTP API first, then starts Citadel, the worker, and JCode in managed background tasks. Runtime health endpoints remain responsive while these services are starting. JCode's API bridge runs as an isolated child process with a dedicated `.mutexflow/jcode` home and local IPC socket.
 2. Only the explicitly configured `JCODE_PROVIDER` and `JCODE_MODEL` settings are passed to the child. Provider API keys are not inherited in its environment.
 3. The backend provisions provider keys through `JcodeClient::set_api_key`; JCode persists them in its owner-only credential store. Supported key providers are OpenAI, Anthropic, OpenRouter, and Gemini.
 4. Avalonia creates a role-scoped agent session. The backend creates the JCode session with a fixed Orchestral system prompt, configures its custom tool allowlist, and registers the agent in Citadel.
@@ -57,7 +57,7 @@ Shell/process execution, file writes, network access, MCP, self-development, act
 - JCode autostart is blocked unless the backend binds to loopback (`127.0.0.1`, `localhost`, or `::1`).
 - The API bridge runs with a clean environment and a dedicated state home. MutexFlow cloud, OAuth, Supabase, and Orchestral secrets are not inherited.
 - Provider keys are passed only through the JCode SDK credential API and stored by JCode in its owner-only credential store.
-- The manager checks the child and API health before reuse and attempts to restart the managed runtime on the next operation after a crash.
+- The manager checks the child and API health before reuse and attempts to restart the managed runtime on the next operation after a crash. Backend startup does not wait for sidecar compilation or JCode bridge startup; the UI can poll health while those tasks complete.
 - Sessions are reconfigured with the restricted tool set before each turn because JCode tool configuration is memory-only.
 - The event buffer retains the newest 2,048 events. It is a live UI feed, not a durable transcript or audit ledger; Citadel remains the audit source.
 - A turn reports provider usage counters and elapsed time when supplied by JCode. Cost is not fabricated when pricing metadata is unavailable.

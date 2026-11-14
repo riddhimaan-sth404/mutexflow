@@ -432,6 +432,12 @@ impl JcodeManager {
         }).unwrap_or_default()
     }
 
+    /// Stop the managed bridge and its registered JCode daemon during backend shutdown.
+    pub fn shutdown(&self) {
+        let runtime = self.runtime.lock().ok().and_then(|mut slot| slot.take());
+        drop(runtime);
+    }
+
     pub fn latest_event_sequence(&self) -> u64 {
         self.event_sequence.load(Ordering::Relaxed)
     }

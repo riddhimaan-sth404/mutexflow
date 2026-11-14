@@ -25,6 +25,7 @@ pub struct OrchestralRuntimeStatus {
 
 pub struct OrchestralManager {
     processes: Mutex<RuntimeProcesses>,
+    startup_lock: Mutex<()>,
     client: reqwest::Client,
     root: PathBuf,
     admin_key: Option<String>,
@@ -63,6 +64,7 @@ impl OrchestralManager {
                 core: None,
                 worker: None,
             }),
+            startup_lock: Mutex::new(()),
             client: reqwest::Client::builder()
                 .timeout(Duration::from_secs(10))
                 .build()
@@ -82,9 +84,15 @@ impl OrchestralManager {
             return Ok(());
         }
 
-        let mut processes = self.processes.lock().await;
-        if processes.core.is_some() && processes.worker.is_some() {
-            return Ok(());
+        // Serialize start/shutdown, but never hold the process-state lock
+        // during Cargo builds or health polling: status requests must remain
+        // responsive while sidecars are being prepared.
+        let _startup = self.startup_lock.lock().await;
+        {
+            let processes = self.processes.lock().await;
+            if processes.core.is_some() && processes.worker.is_some() {
+                return Ok(());
+            }
         }
 
         let data_dir = self.root.join(".mutexflow").join("orchestral");
@@ -194,6 +202,7 @@ impl OrchestralManager {
         }
 
         info!("[Orchestral] Citadel and restricted local-analysis worker are ready.");
+        let mut processes = self.processes.lock().await;
         processes.core = Some(core);
         processes.worker = Some(worker);
         Ok(())
@@ -356,6 +365,7 @@ impl OrchestralManager {
     }
 
     pub async fn shutdown(&self) {
+        let _startup = self.startup_lock.lock().await;
         let mut processes = self.processes.lock().await;
         if let Some(mut worker) = processes.worker.take() {
             let _ = worker.kill().await;
