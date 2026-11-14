@@ -10,7 +10,7 @@ JCode is integrated as the Rust agent-session runtime behind MutexFlow and Orche
 
 ## Responsibility split
 
-- **MutexFlow / Avalonia:** only desktop UX; agent roles, workspaces, session selection, live output, batch launches, and cancellation.
+- **MutexFlow / Avalonia:** desktop UX for provider credential setup/removal, agent roles, workspaces, session selection, live output, batch launches, and cancellation.
 - **MutexFlow Rust backend:** owns the JCode child process, credential provisioning, concurrency gate, session adapter, event buffer, and workspace tool execution.
 - **Orchestral / Citadel:** authoritative agent registry and append-only audit chain. Agent status transitions and every custom tool request/result are recorded through the authenticated Citadel admin API.
 - **JCode:** Rust agent harness, model-provider runtime, session persistence, turn execution, and concurrent independent agent sessions.
@@ -20,7 +20,7 @@ JCode is integrated as the Rust agent-session runtime behind MutexFlow and Orche
 
 1. The backend binds its local HTTP API first, then starts Citadel, the worker, and JCode in managed background tasks. Runtime health endpoints remain responsive while these services are starting. JCode's API bridge runs as an isolated child process with a dedicated `.mutexflow/jcode` home and local IPC socket.
 2. Only the explicitly configured `JCODE_PROVIDER` and `JCODE_MODEL` settings are passed to the child. Provider API keys are not inherited in its environment.
-3. The backend provisions provider keys through `JcodeClient::set_api_key`; JCode persists them in its owner-only credential store. Supported key providers are OpenAI, Anthropic, OpenRouter, and Gemini.
+3. Provider keys can be entered in the Avalonia dashboard and are sent only to the loopback backend. The backend provisions them through `JcodeClient::set_api_key`; JCode persists them in its owner-only credential store. MutexFlow stores only provider IDs in `.mutexflow/jcode/providers.json`, never key material, so provider readiness survives backend restarts. Supported key providers are OpenAI, Anthropic, OpenRouter, and Gemini.
 4. Avalonia creates a role-scoped agent session. The backend creates the JCode session with a fixed Orchestral system prompt, configures its custom tool allowlist, and registers the agent in Citadel.
 5. Up to eight independent JCode sessions can run concurrently. The batch API creates/registers each agent with the currently selected specialist role and schedules the turns through a bounded semaphore.
 6. JCode text/tool events are translated into a bounded, sequence-numbered event buffer. Avalonia polls the event endpoint and renders assistant text as it arrives.
@@ -48,7 +48,7 @@ JCode built-in tools are disabled. The only custom tools exposed to sessions are
 
 All tools are read-only and run in the MutexFlow backend, not inside the JCode process. They enforce relative paths, canonical workspace-root containment, symlink rejection, and exclusions for common credential files/directories, VCS metadata, and MutexFlow runtime state. Common API-key/password/secret assignments, bearer tokens, provider-token formats, and PEM private-key blocks are redacted from file contents and search previews before they reach the model. Audit records retain tool names, paths, and query lengths rather than storing search query text. The search tool skips generated/dependency directories such as `.git`, `target`, `node_modules`, `.venv`, and `vendor`.
 
-Shell/process execution, file writes, network access, MCP, self-development, active port scanning, HTTP probing, and Kali terminal tools are not exposed. These modules remain vendored but dormant: the worker's tool registry ships only the passive secret scanner, and the extended tools are registered only when the operator explicitly sets `MUTEXFLOW_ENABLE_EXTENDED_TOOLS=1`. They require a separately reviewed sandbox, explicit target authorization, Citadel policy evaluation, approval, and audit design. See [SECURITY.md](SECURITY.md).
+Shell/process execution, file writes, network access, MCP, self-development, active port scanning, HTTP probing, and Kali terminal tools are not exposed. These modules remain vendored but hard-disabled: the managed worker's registry exposes only the passive secret scanner, and the standalone swarm runner exits unconditionally. No environment variable enables the dormant modules. Any future reintroduction requires a separately reviewed sandbox, explicit target authorization, Citadel policy evaluation, approval, and audit design. See [SECURITY.md](SECURITY.md).
 
 ## Lifecycle and failure behavior
 
@@ -56,10 +56,10 @@ Shell/process execution, file writes, network access, MCP, self-development, act
 - Enable it with `JCODE_AUTOSTART=true` and set `JCODE_BINARY` to the installed executable.
 - JCode autostart is blocked unless the backend binds to loopback (`127.0.0.1`, `localhost`, or `::1`).
 - The API bridge runs with a clean environment and a dedicated state home. MutexFlow cloud, OAuth, Supabase, and Orchestral secrets are not inherited.
-- Provider keys are passed only through the JCode SDK credential API and stored by JCode in its owner-only credential store.
+- Provider keys are passed only through the JCode SDK credential API and stored by JCode in its owner-only credential store. MutexFlow persists provider IDs only, never the key values.
 - The manager checks the child and API health before reuse and attempts to restart the managed runtime on the next operation after a crash. Backend startup does not wait for sidecar compilation or JCode bridge startup; the UI can poll health while those tasks complete.
 - Sessions are reconfigured with the restricted tool set before each turn because JCode tool configuration is memory-only.
-- The event buffer retains the newest 2,048 events. It is a live UI feed, not a durable transcript or audit ledger; Citadel remains the audit source.
+- The event buffer retains up to 8,192 events globally and 1,024 per session. It is a live UI feed, not a durable transcript or audit ledger; Citadel remains the audit source.
 - A turn reports provider usage counters and elapsed time when supplied by JCode. Cost is not fabricated when pricing metadata is unavailable.
 
 ## Configuration
