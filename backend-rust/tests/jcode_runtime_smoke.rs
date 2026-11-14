@@ -22,6 +22,16 @@ async fn isolated_jcode_runtime_smoke() {
     manager.start().expect("JCode Harness starts in isolated home");
     assert!(manager.status().connected, "Harness API should answer health ping");
 
+    assert!(manager.configure_provider("unknown", "test-key").await.is_err());
+    assert!(manager.configure_provider("openai-api", "invalid\nkey").await.is_err());
+    let configured = manager.configure_provider("openai-api", "sk-test-mutexflow-smoke").await
+        .expect("persist a test provider key through the SDK");
+    assert_eq!(configured["configured"], true);
+    assert!(manager.status().provider_ready, "provider status updates after configuration");
+    let cleared = manager.clear_provider("openai-api").await.expect("clear test provider key");
+    assert_eq!(cleared["configured"], false);
+    assert!(!manager.status().provider_ready, "provider status updates after credential removal");
+
     let created = manager.create_session(".").await.expect("create isolated session");
     let session_id = created["session_id"].as_str().expect("session id").to_string();
     assert_eq!(created["tools_enabled"], 0);
