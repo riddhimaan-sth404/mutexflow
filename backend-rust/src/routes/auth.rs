@@ -314,7 +314,19 @@ pub fn ensure_local_api_token(root: &std::path::Path) -> String {
 }
 
 fn configured_local_token() -> Option<String> {
-    configured_local_token_value(std::env::var("MUTEXFLOW_API_TOKEN").ok().as_deref())
+    match std::env::var("MUTEXFLOW_API_TOKEN") {
+        Ok(value) => {
+            let token = value.trim();
+            if token.len() < 16 {
+                panic!("MUTEXFLOW_API_TOKEN must contain at least 16 non-whitespace characters");
+            }
+            Some(token.to_string())
+        }
+        Err(std::env::VarError::NotPresent) => None,
+        Err(std::env::VarError::NotUnicode(_)) => {
+            panic!("MUTEXFLOW_API_TOKEN must be valid UTF-8")
+        }
+    }
 }
 
 fn configured_local_token_value(value: Option<&str>) -> Option<String> {

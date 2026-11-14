@@ -37,9 +37,12 @@ token sent as the `X-MutexFlow-Token` header, in addition to a loopback
 requests from the browser even when CORS is bypassed.
 
 - On first run the backend generates a 256-bit token exclusively from the
-  operating system cryptographic random-number generator and persists it
-  owner-only (0600) at `.mutexflow/backend-token`. Startup fails closed if
-  secure randomness or safe token-file persistence is unavailable.
+  operating system cryptographic random-number generator and persists it at
+  `.mutexflow/backend-token`. Unix permissions are restricted to directory
+  mode 0700 and file mode 0600. On Windows the token inherits the ACL of the
+  parent directory; keep the repository and `.mutexflow` directory inside a
+  user-private location. Startup fails closed if secure randomness or safe
+  token-file persistence is unavailable.
 - Set `MUTEXFLOW_API_TOKEN` to supply your own token; it takes precedence.
 - The Avalonia desktop client attaches the header automatically from the
   environment variable or the token file. CI supplies its own value.
