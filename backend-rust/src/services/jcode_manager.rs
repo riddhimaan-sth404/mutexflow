@@ -157,7 +157,7 @@ impl JcodeManager {
         }
         let stale = {
             let mut slot = self.runtime.lock().map_err(|_| "JCode runtime lock poisoned")?;
-            if slot.as_ref().map(runtime_is_alive).unwrap_or(false) {
+            if slot.as_ref().map(|runtime| runtime_is_alive(runtime)).unwrap_or(false) {
                 return Ok(());
             }
             slot.take()
@@ -619,7 +619,7 @@ impl JcodeManager {
         tokio::task::spawn_blocking(move || {
             runtime.client.cancel(&cancel_id)
                 .map_err(|e| format!("cancel JCode session: {e}"))?;
-            Ok(json!({ "session_id": cancel_id, "status": "cancellation_requested" }))
+            Ok::<Value, String>(json!({ "session_id": cancel_id, "status": "cancellation_requested" }))
         }).await.map_err(|e| format!("JCode cancellation task failed: {e}"))??;
         self.update_agent_status(&session_id, "cancelled", 0).await;
         Ok(json!({ "session_id": session_id, "status": "cancellation_requested" }))
@@ -637,7 +637,7 @@ impl JcodeManager {
             return Err(format!("every task must be non-empty and at most {MAX_PROMPT_BYTES} bytes"));
         }
 
-        let mut session_ids = Vec::with_capacity(prompts.len());
+        let mut session_ids: Vec<String> = Vec::with_capacity(prompts.len());
         for prompt in &prompts {
             let created = match self.create_agent_session(workspace, "workspace_analyst", prompt).await {
                 Ok(created) => created,
