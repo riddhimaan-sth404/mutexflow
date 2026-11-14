@@ -386,17 +386,38 @@ impl JcodeManager {
                         server.env(name, value);
                     }
                 }
-                let output = server.output()
-                    .map_err(|e| format!("start isolated JCode daemon: {e}"))?;
-                if !output.status.success() {
-                    stop_registered_daemon(&home, &self.binary);
-                    let detail = String::from_utf8_lossy(&output.stderr);
-                    let detail: String = detail.chars().take(1200).collect();
-                    return Err(format!(
-                        "JCode daemon startup failed ({}): {}",
-                        output.status,
-                        detail.trim()
-                    ));
+                let server_log_path = home.join("jcode-server-start.err.log");
+                let server_log = file_log(&home, "jcode-server-start.err.log")?;
+                server.stderr(server_log);
+                let mut server_process = server.spawn()
+                    .map_err(|error| format!("start isolated JCode daemon: {error}"))?;
+                let server_deadline = Instant::now() + Duration::from_secs(45);
+                loop {
+                    match server_process.try_wait() {
+                        Ok(Some(status)) if status.success() => break,
+                        Ok(Some(status)) => {
+                            stop_registered_daemon(&home, &self.binary);
+                            let detail = std::fs::read_to_string(&server_log_path).unwrap_or_default();
+                            let detail: String = detail.chars().take(1200).collect();
+                            return Err(format!("JCode daemon startup failed ({status}): {}", detail.trim()));
+                        }
+                        Ok(None) if Instant::now() < server_deadline => {}
+                        Ok(None) => {
+                            let _ = server_process.kill();
+                            let _ = server_process.wait();
+                            stop_registered_daemon(&home, &self.binary);
+                            let detail = std::fs::read_to_string(&server_log_path).unwrap_or_default();
+                            let detail: String = detail.chars().take(1200).collect();
+                            return Err(format!("JCode daemon startup timed out after 45 seconds: {}", detail.trim()));
+                        }
+                        Err(error) => {
+                            let _ = server_process.kill();
+                            let _ = server_process.wait();
+                            stop_registered_daemon(&home, &self.binary);
+                            return Err(format!("check JCode daemon startup process: {error}"));
+                        }
+                    }
+                    std::thread::sleep(Duration::from_millis(250));
                 }
 
                 let bridge_binary = match windows_bridge_binary(&self.binary) {
