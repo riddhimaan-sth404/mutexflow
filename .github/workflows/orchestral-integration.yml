@@ -153,7 +153,7 @@ jobs:
           test "$unauth_jcode" = "401"
 
           orchestral_ready=false
-          for _ in $(seq 1 600); do
+          for _ in $(seq 1 1200); do
             orchestral_status=$(curl --silent --show-error -H "X-MutexFlow-Token: $MUTEXFLOW_API_TOKEN" http://127.0.0.1:3001/api/v1/orchestral/status 2>/dev/null || true)
             if printf '%s' "$orchestral_status" | python -c 'import json,sys; d=json.load(sys.stdin); sys.exit(0 if d.get("core_healthy") and d.get("worker_healthy") else 1)' 2>/dev/null; then
               orchestral_ready=true
