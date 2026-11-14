@@ -79,26 +79,45 @@ public class AgentClientService : IAgentClientService
             return _localApiToken;
         }
 
-        try
+        // Prefer explicit paths used by packaged installs, then search the
+        // launch/application directories for development deployments.
+        var candidates = new List<string>();
+        var configuredFile = Environment.GetEnvironmentVariable("MUTEXFLOW_API_TOKEN_FILE");
+        if (!string.IsNullOrWhiteSpace(configuredFile))
+            candidates.Add(configuredFile);
+        var configuredRoot = Environment.GetEnvironmentVariable("MUTEXFLOW_ROOT");
+        if (!string.IsNullOrWhiteSpace(configuredRoot))
+            candidates.Add(Path.Combine(configuredRoot, ".mutexflow", "backend-token"));
+
+        foreach (var initial in new[] { Environment.CurrentDirectory, AppContext.BaseDirectory })
         {
-            foreach (var dir in new[] { Environment.CurrentDirectory, AppContext.BaseDirectory })
+            if (string.IsNullOrWhiteSpace(initial)) continue;
+            DirectoryInfo? current = new DirectoryInfo(initial);
+            for (var depth = 0; current != null && depth < 8; depth++, current = current.Parent)
+                candidates.Add(Path.Combine(current.FullName, ".mutexflow", "backend-token"));
+        }
+
+        foreach (var candidate in candidates.Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            try
             {
-                if (string.IsNullOrWhiteSpace(dir)) continue;
-                var candidate = Path.Combine(dir, ".mutexflow", "backend-token");
                 if (!File.Exists(candidate)) continue;
                 var value = File.ReadAllText(candidate).Trim();
-                if (!string.IsNullOrWhiteSpace(value))
-                {
-                    _localApiToken = value;
-                    return _localApiToken;
-                }
+                if (value.Length < 16) continue;
+                _localApiToken = value;
+                _storage.SaveSecret("backend_api_token", value);
+                return _localApiToken;
+            }
+            catch
+            {
+                // Try other configured locations; the backend rejects
+                // unauthenticated requests rather than bypassing its guard.
             }
         }
-        catch
-        {
-            // Leave the token unset; the backend rejects unauthenticated
-            // orchestral/JCode calls with 401 and the UI surfaces the error.
-        }
+
+        var saved = _storage.GetSecret("backend_api_token");
+        if (!string.IsNullOrWhiteSpace(saved) && saved.Trim().Length >= 16)
+            _localApiToken = saved.Trim();
 
         return _localApiToken;
     }

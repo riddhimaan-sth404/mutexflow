@@ -45,7 +45,10 @@ requests from the browser even when CORS is bypassed.
   token-file persistence is unavailable.
 - Set `MUTEXFLOW_API_TOKEN` to supply your own token; it takes precedence.
 - The Avalonia desktop client attaches the header automatically from the
-  environment variable or the token file. CI supplies its own value.
+  environment variable or token file, then caches a discovered token in its
+  secure storage. Packaged installs can set `MUTEXFLOW_API_TOKEN_FILE` or
+  `MUTEXFLOW_ROOT` when the backend state directory is elsewhere. CI supplies
+  its own value.
 - Unauthenticated and non-loopback requests are rejected with `401`; this is
   asserted by unit tests and by the managed-runtime end-to-end workflow.
 
