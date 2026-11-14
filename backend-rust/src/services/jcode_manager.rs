@@ -470,6 +470,10 @@ impl JcodeManager {
     }
 
     pub async fn run(&self, session_id: &str, prompt: &str) -> Result<Value, String> {
+        self.run_with_tools(session_id, prompt, true).await
+    }
+
+    pub async fn run_with_tools(&self, session_id: &str, prompt: &str, allow_tools: bool) -> Result<Value, String> {
         if session_id.trim().is_empty() || session_id.len() > 128 {
             return Err("invalid JCode session identifier".into());
         }
@@ -504,7 +508,7 @@ impl JcodeManager {
                 return Err("JCode session workspace is outside the assigned MutexFlow root".into());
             }
             let root = workspace.clone();
-            let tools = if citadel_ready {
+            let tools = if citadel_ready && allow_tools {
                 readonly_tool_configuration()
             } else {
                 ToolConfiguration { enabled: Some(Vec::new()), disabled: Vec::new(), custom: Vec::new() }
@@ -539,7 +543,9 @@ impl JcodeManager {
                             let audit_ok = audit_runtime.block_on(orchestral.record_audit(
                                 &tool_session_id, "jcode_tool_requested", &request_details
                             )).is_ok();
-                            let outcome = if audit_ok {
+                            let outcome = if !allow_tools {
+                                Err("tools are disabled for this JCode turn".to_string())
+                            } else if audit_ok {
                                 execute_readonly_tool(&root, &tool_name, input)
                             } else {
                                 Err("Citadel audit unavailable; tool call denied".to_string())

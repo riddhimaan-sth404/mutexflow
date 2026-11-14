@@ -13,7 +13,7 @@ use crate::routes::auth::AppState;
 struct CreateSessionRequest { workspace: String, role: Option<String>, objective: Option<String> }
 
 #[derive(Deserialize)]
-struct RunRequest { prompt: String }
+struct RunRequest { prompt: String, disable_tools: Option<bool> }
 
 #[derive(Deserialize)]
 struct BatchRequest { workspace: String, role: Option<String>, tasks: Vec<String> }
@@ -95,7 +95,7 @@ async fn run(
     Path(id): Path<String>,
     Json(request): Json<RunRequest>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    state.jcode.run(&id, &request.prompt).await.map(Json).map_err(failure)
+    state.jcode.run_with_tools(&id, &request.prompt, !request.disable_tools.unwrap_or(false)).await.map(Json).map_err(failure)
 }
 
 async fn cancel(
