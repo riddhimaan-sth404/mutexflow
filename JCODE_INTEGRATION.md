@@ -46,7 +46,7 @@ JCode built-in tools are disabled. The only custom tools exposed to sessions are
 - `workspace_list`: immediate directory entries, capped at 200.
 - `workspace_search`: literal text search, capped at 1,000 files, 200 matches, and 1 MiB per file.
 
-All tools are read-only and run in the MutexFlow backend, not inside the JCode process. They enforce relative paths, canonical workspace-root containment, symlink rejection, and exclusions for common credential files/directories, VCS metadata, and MutexFlow runtime state. The search tool skips generated/dependency directories such as `.git`, `target`, `node_modules`, `.venv`, and `vendor`.
+All tools are read-only and run in the MutexFlow backend, not inside the JCode process. They enforce relative paths, canonical workspace-root containment, symlink rejection, and exclusions for common credential files/directories, VCS metadata, and MutexFlow runtime state. Common API-key assignments, bearer tokens, provider-token formats, and PEM private-key blocks are redacted from file contents and search previews before they reach the model. The search tool skips generated/dependency directories such as `.git`, `target`, `node_modules`, `.venv`, and `vendor`.
 
 Shell/process execution, file writes, network access, MCP, self-development, active port scanning, HTTP probing, and Kali terminal tools are not exposed. These capabilities must not be enabled by bypassing the backend adapter. They require a separately reviewed sandbox, explicit target authorization, Citadel policy evaluation, approval, and audit design.
 

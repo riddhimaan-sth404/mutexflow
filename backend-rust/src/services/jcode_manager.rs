@@ -2,6 +2,7 @@ use jcode_sdk::{
     ApiEvent, ConnectOptions, CreateSessionOptions, JcodeClient, RunOptions,
     SessionToolDefinition, ToolConfiguration,
 };
+use regex::Regex;
 use serde::Serialize;
 use serde_json::{json, Value};
 use std::{
@@ -10,7 +11,7 @@ use std::{
     process::{Child, Command, Stdio},
     sync::{
         atomic::{AtomicU64, Ordering},
-        Arc, Mutex,
+        Arc, Mutex, OnceLock,
     },
     time::{Duration, Instant},
 };
@@ -947,7 +948,8 @@ fn execute_readonly_tool(root: &Path, name: &str, input: &Value) -> Result<Strin
             if !metadata.is_file() || metadata.len() > 64 * 1024 {
                 return Err("workspace_read accepts regular files up to 64 KiB".into());
             }
-            std::fs::read_to_string(&target).map_err(|e| format!("read UTF-8 source file: {e}"))
+            let contents = std::fs::read_to_string(&target).map_err(|e| format!("read UTF-8 source file: {e}"))?;
+            Ok(redact_sensitive_content(&contents))
         }
         "workspace_search" => search_workspace(&root, &target, input),
         "workspace_list" => {
@@ -994,6 +996,27 @@ fn is_sensitive_workspace_path(path: &Path) -> bool {
     [".pem", ".key", ".p12", ".pfx", ".p7b", ".p7c", ".kdbx", ".keystore", ".jks"]
         .iter().any(|suffix| name.ends_with(suffix))
         || matches!(name.as_str(), ".netrc" | ".npmrc" | ".pypirc" | "id_rsa" | "id_ed25519" | "config.json")
+}
+
+fn redact_sensitive_content(input: &str) -> String {
+    static PATTERNS: OnceLock<Vec<Regex>> = OnceLock::new();
+    let patterns = PATTERNS.get_or_init(|| {
+        vec![
+            Regex::new(
+                r#"(?i)((?:api[_-]?key|access[_-]?token|refresh[_-]?token|auth[_-]?token|client[_-]?secret|secret|password|passwd|private[_-]?key|authorization|database[_-]?url|connection[_-]?string)\s*[:=]\s*["']?)[^"'\s,;}\]]+"#,
+            ).expect("valid secret assignment redaction regex"),
+            Regex::new(r"(?i)(bearer\s+)[A-Za-z0-9._~+/-]+=*")
+                .expect("valid bearer token redaction regex"),
+            Regex::new(r"(?i)\b(?:sk-[A-Za-z0-9_-]{16,}|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|xox[baprs]-[A-Za-z0-9-]{10,}|AKIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{20,}|ya29\.[0-9A-Za-z_-]+)\b")
+                .expect("valid provider token redaction regex"),
+            Regex::new(r"(?s)-----BEGIN [A-Z ]*PRIVATE KEY-----.*?-----END [A-Z ]*PRIVATE KEY-----")
+                .expect("valid private key block redaction regex"),
+        ]
+    });
+    let output = patterns[0].replace_all(input, "$1[REDACTED]");
+    let output = patterns[1].replace_all(&output, "$1[REDACTED]");
+    let output = patterns[2].replace_all(&output, "[REDACTED]");
+    patterns[3].replace_all(&output, "[REDACTED PRIVATE KEY]").into_owned()
 }
 
 fn search_workspace(root: &Path, target: &Path, input: &Value) -> Result<String, String> {
@@ -1043,7 +1066,7 @@ fn search_workspace(root: &Path, target: &Path, input: &Value) -> Result<String,
                     matches.push(json!({
                         "path": relative,
                         "line": line_index + 1,
-                        "preview": line.chars().take(240).collect::<String>()
+                        "preview": redact_sensitive_content(&line.chars().take(240).collect::<String>())
                     }));
                     if matches.len() >= 200 { break; }
                 }
@@ -1102,7 +1125,7 @@ mod tests {
         let root = std::env::temp_dir().join(format!("mutexflow-jcode-search-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(root.join("src")).expect("create source fixture");
-        std::fs::write(root.join("src/main.rs"), "fn main() { println!(\"needle\"); }").expect("write source");
+        std::fs::write(root.join("src/main.rs"), "fn main() { println!(\"needle\"); }\\nconst API_KEY: &str = \\\"sk-12345678901234567890abcdef\\\";").expect("write source");
         std::fs::write(root.join(".env"), "needle=secret").expect("write sensitive fixture");
         std::fs::create_dir_all(root.join(".git")).expect("create VCS metadata fixture");
         std::fs::write(root.join(".git/config"), "url=https://user:token@example.invalid/repo").expect("write VCS metadata fixture");
@@ -1111,7 +1134,13 @@ mod tests {
         let result = super::execute_readonly_tool(&root, "workspace_search", &serde_json::json!({"query":"needle"}))
             .expect("search workspace");
         assert!(result.contains("src/main.rs"));
+        assert!(!result.contains("sk-12345678901234567890abcdef"));
+        assert!(result.contains("[REDACTED]"));
         assert!(!result.contains(".env"));
+        let read = super::execute_readonly_tool(&root, "workspace_read", &serde_json::json!({"path":"src/main.rs"}))
+            .expect("read source with secret redaction");
+        assert!(!read.contains("sk-12345678901234567890abcdef"));
+        assert!(read.contains("[REDACTED]"));
         assert!(is_sensitive_workspace_path(Path::new(".git/config")));
         assert!(is_sensitive_workspace_path(Path::new(".mutexflow/jcode/credentials.json")));
         assert!(is_sensitive_workspace_path(Path::new(".ssh/id_ed25519")));
