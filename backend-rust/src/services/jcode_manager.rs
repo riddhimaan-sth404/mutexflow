@@ -7,6 +7,7 @@ use serde::Serialize;
 use serde_json::{json, Value};
 use std::{
     collections::{HashMap, VecDeque},
+    io::Write,
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
     sync::{
@@ -199,17 +200,24 @@ impl JcodeManager {
                 &json!({"provider": provider}).to_string(),
             ).await?;
         }
-        tokio::task::spawn_blocking(move || runtime.client.set_api_key(&provider_owned, &key))
+        let credential_runtime = runtime.clone();
+        tokio::task::spawn_blocking(move || credential_runtime.client.set_api_key(&provider_owned, &key))
             .await
             .map_err(|error| format!("JCode provider configuration task failed: {error}"))?
             .map_err(|error| format!("JCode rejected provider credentials: {error}"))?;
-        {
-            let mut configured = self.configured_providers.lock()
-                .map_err(|_| "JCode provider state lock poisoned")?;
-            if !configured.iter().any(|value| normalize_api_key_provider(value) == Some(provider)) {
-                configured.push(provider.to_string());
-            }
+        let mut configured = self.configured_providers.lock()
+            .map_err(|_| "JCode provider state lock poisoned")?.clone();
+        if !configured.iter().any(|value| normalize_api_key_provider(value) == Some(provider)) {
+            configured.push(provider.to_string());
         }
+        if let Err(error) = persist_provider_registry(&runtime.home, &configured) {
+            let rollback_runtime = runtime.clone();
+            let rollback_provider = provider.to_string();
+            let _ = tokio::task::spawn_blocking(move || rollback_runtime.client.clear_api_key(&rollback_provider)).await;
+            return Err(format!("persist provider registry; credential update rolled back: {error}"));
+        }
+        *self.configured_providers.lock()
+            .map_err(|_| "JCode provider state lock poisoned")? = configured;
         let audit_recorded = if audit_available {
             self.orchestral.record_audit(
                 "mutexflow-jcode",
@@ -235,13 +243,21 @@ impl JcodeManager {
                 &json!({"provider": provider}).to_string(),
             ).await?;
         }
-        tokio::task::spawn_blocking(move || runtime.client.clear_api_key(&provider_owned))
+        let previous = self.configured_providers.lock()
+            .map_err(|_| "JCode provider state lock poisoned")?.clone();
+        let mut next = previous.clone();
+        next.retain(|value| normalize_api_key_provider(value) != Some(provider));
+        persist_provider_registry(&runtime.home, &next)?;
+        let clear_runtime = runtime.clone();
+        if let Err(error) = tokio::task::spawn_blocking(move || clear_runtime.client.clear_api_key(&provider_owned))
             .await
             .map_err(|error| format!("JCode provider removal task failed: {error}"))?
-            .map_err(|error| format!("JCode could not clear provider credentials: {error}"))?;
-        self.configured_providers.lock()
-            .map_err(|_| "JCode provider state lock poisoned")?
-            .retain(|value| normalize_api_key_provider(value) != Some(provider));
+        {
+            let _ = persist_provider_registry(&runtime.home, &previous);
+            return Err(format!("JCode could not clear provider credentials: {error}"));
+        }
+        *self.configured_providers.lock()
+            .map_err(|_| "JCode provider state lock poisoned")? = next;
         let audit_recorded = if audit_available {
             self.orchestral.record_audit(
                 "mutexflow-jcode",
@@ -481,7 +497,7 @@ impl JcodeManager {
             ("openrouter", &["JCODE_OPENROUTER_API_KEY", "OPENROUTER_API_KEY"]),
             ("gemini", &["JCODE_GEMINI_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY"]),
         ];
-        let mut configured = Vec::new();
+        let mut configured = load_provider_registry(&home);
         for (provider, names) in provider_keys {
             if let Some(key) = names.iter().find_map(|name| {
                 std::env::var(name).ok().filter(|value| !value.trim().is_empty())
@@ -492,9 +508,12 @@ impl JcodeManager {
                     stop_registered_daemon(&home, &self.binary);
                     return Err(format!("provision JCode {provider} credentials: {error}"));
                 }
-                configured.push(provider.to_string());
+                if !configured.iter().any(|value| normalize_api_key_provider(value) == normalize_api_key_provider(provider)) {
+                    configured.push(provider.to_string());
+                }
             }
         }
+        persist_provider_registry(&home, &configured)?;
 
         *self.configured_providers.lock()
             .map_err(|_| "JCode provider state lock poisoned")? = configured;
@@ -1110,6 +1129,52 @@ fn resolve_workspace(root: &Path, relative: &str) -> Result<PathBuf, String> {
         return Err("workspace must resolve to a directory inside the MutexFlow workspace root".into());
     }
     Ok(workspace)
+}
+
+fn load_provider_registry(home: &Path) -> Vec<String> {
+    let path = home.join("providers.json");
+    let Ok(contents) = std::fs::read_to_string(path) else {
+        return Vec::new();
+    };
+    let Ok(values) = serde_json::from_str::<Vec<String>>(&contents) else {
+        warn!("[JCode] Provider registry is invalid; provider readiness will be rebuilt from configured environment keys.");
+        return Vec::new();
+    };
+    let mut providers = Vec::new();
+    for value in values {
+        if let Some(provider) = normalize_api_key_provider(&value) {
+            if !providers.iter().any(|existing| existing == provider) {
+                providers.push(provider.to_string());
+            }
+        }
+    }
+    providers
+}
+
+fn persist_provider_registry(home: &Path, providers: &[String]) -> Result<(), String> {
+    set_private_dir(home)?;
+    let path = home.join("providers.json");
+    let contents = serde_json::to_vec(providers)
+        .map_err(|error| format!("serialize JCode provider registry: {error}"))?;
+    let mut options = std::fs::OpenOptions::new();
+    options.create(true).truncate(true).write(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut file = options.open(&path)
+        .map_err(|error| format!("open JCode provider registry: {error}"))?;
+    file.write_all(&contents)
+        .and_then(|_| file.sync_all())
+        .map_err(|error| format!("persist JCode provider registry: {error}"))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))
+            .map_err(|error| format!("restrict JCode provider registry: {error}"))?;
+    }
+    Ok(())
 }
 
 fn normalize_api_key_provider(provider: &str) -> Option<&'static str> {

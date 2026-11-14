@@ -28,6 +28,14 @@ async fn isolated_jcode_runtime_smoke() {
         .expect("persist a test provider key through the SDK");
     assert_eq!(configured["configured"], true);
     assert!(manager.status().provider_ready, "provider status updates after configuration");
+
+    // Provider readiness survives a backend restart without persisting the key
+    // in MutexFlow: only JCode's owner-only credential store contains it.
+    manager.shutdown();
+    let manager = JcodeManager::new(root.clone(), Arc::new(OrchestralManager::new(root.clone())));
+    manager.start().expect("restart JCode with persisted provider state");
+    assert!(manager.status().provider_ready, "provider registry survives backend restart");
+
     let cleared = manager.clear_provider("openai-api").await.expect("clear test provider key");
     assert_eq!(cleared["configured"], false);
     assert!(!manager.status().provider_ready, "provider status updates after credential removal");
