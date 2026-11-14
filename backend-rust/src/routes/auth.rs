@@ -2,8 +2,9 @@
 use crate::config::oauth::get_oauth_config;
 use crate::models::{VerifyLicenseRequest, VerifyLicenseResponse};
 use axum::{
-    extract::{Path, Query, State},
-    http::StatusCode,
+    extract::{Path, Query, Request, State},
+    http::{HeaderMap, StatusCode},
+    middleware::Next,
     response::{Html, IntoResponse, Redirect, Response},
     Json,
 };
@@ -12,7 +13,7 @@ use serde::Deserialize;
 use serde_json::Value;
 use std::env;
 use std::fs;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use tracing::{error, info, warn};
 
 #[derive(Clone)]
@@ -293,5 +294,199 @@ pub async fn oauth_callback(
             Html(html).into_response()
         }
         Err(e) => (StatusCode::BAD_GATEWAY, format!("Token exchange failed: {}", e)).into_response(),
+    }
+}
+
+pub const LOCAL_TOKEN_HEADER: &str = "x-mutexflow-token";
+
+static LOCAL_API_TOKEN: OnceLock<String> = OnceLock::new();
+
+/// Resolve or create the loopback API token that protects the local
+/// orchestral and JCode endpoints. The token comes from MUTEXFLOW_API_TOKEN
+/// when set, otherwise it is generated once and persisted owner-only at
+/// `.mutexflow/backend-token`.
+pub fn ensure_local_api_token(root: &std::path::Path) -> String {
+    LOCAL_API_TOKEN.get().cloned().unwrap_or_else(|| {
+        let token = match std::env::var("MUTEXFLOW_API_TOKEN") {
+            Ok(value) if value.trim().len() >= 16 => value.trim().to_string(),
+            _ => load_or_create_token_file(root),
+        };
+        let _ = LOCAL_API_TOKEN.set(token.clone());
+        token
+    })
+}
+
+fn load_or_create_token_file(root: &std::path::Path) -> String {
+    let dir = root.join(".mutexflow");
+    let path = dir.join("backend-token");
+    if let Ok(existing) = std::fs::read_to_string(&path) {
+        let token = existing.trim().to_string();
+        if token.len() >= 16 {
+            return token;
+        }
+    }
+    let token = generate_local_token();
+    let _ = std::fs::create_dir_all(&dir);
+    #[cfg(unix)]
+    {
+        use std::io::Write as _;
+        use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+        if let Ok(mut file) = std::fs::OpenOptions::new()
+            .mode(0o600)
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(&path)
+        {
+            let _ = writeln!(file, "{token}");
+        }
+        let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = std::fs::write(&path, &token);
+    }
+    token
+}
+
+/// Generate a random local token (hex-encoded 256 bits).
+pub fn generate_local_token() -> String {
+    #[cfg(unix)]
+    {
+        use std::io::Read as _;
+        let mut bytes = [0u8; 32];
+        if let Ok(mut random) = std::fs::File::open("/dev/urandom") {
+            if random.read_exact(&mut bytes).is_ok() {
+                return hex_encode(&bytes);
+            }
+        }
+    }
+    // Fallback when the OS entropy source is unavailable: mix high-resolution
+    // timing and address entropy through SplitMix64.
+    let mut state = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_nanos() as u64)
+        .unwrap_or(0x9E37_79B9_7F4A_7C15);
+    state ^= &state as *const u64 as u64;
+    let mut bytes = [0u8; 32];
+    for chunk in bytes.chunks_mut(8) {
+        state = state.wrapping_add(0x9E37_79B9_7F4A_7C15);
+        let mut z = state;
+        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+        z ^= z >> 31;
+        for (index, byte) in chunk.iter_mut().enumerate() {
+            *byte = (z >> (8 * index)) as u8;
+        }
+    }
+    hex_encode(&bytes)
+}
+
+fn hex_encode(bytes: &[u8]) -> String {
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        out.push_str(&format!("{byte:02x}"));
+    }
+    out
+}
+
+/// Axum middleware protecting the local orchestral and JCode routers: the
+/// request must arrive on a loopback Host header and carry the shared local
+/// token. Unauthenticated callers receive 401.
+pub async fn require_local_access(
+    headers: HeaderMap,
+    request: Request,
+    next: Next,
+) -> Response {
+    let host = headers.get(axum::http::header::HOST).and_then(|value| value.to_str().ok());
+    let token = headers.get(LOCAL_TOKEN_HEADER).and_then(|value| value.to_str().ok());
+    let expected = expected_local_token();
+    if !authorize_request(host, token, &expected) {
+        return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({ "error": "unauthorized" }))).into_response();
+    }
+    next.run(request).await
+}
+
+fn expected_local_token() -> String {
+    if let Ok(value) = std::env::var("MUTEXFLOW_API_TOKEN") {
+        if !value.trim().is_empty() {
+            return value;
+        }
+    }
+    LOCAL_API_TOKEN.get().cloned().unwrap_or_default()
+}
+
+/// Pure authorization decision: loopback Host (DNS-rebinding defense) plus an
+/// exact, constant-time token match. Fails closed when no token is configured.
+fn authorize_request(host: Option<&str>, provided_token: Option<&str>, expected_token: &str) -> bool {
+    let Some(host) = host else { return false; };
+    let host_name = if host.starts_with('[') {
+        host.split(']').next().unwrap_or("").trim_start_matches('[')
+    } else {
+        host.rsplit_once(':').map(|(name, _)| name).unwrap_or(host)
+    };
+    if !matches!(host_name, "127.0.0.1" | "::1" | "localhost") {
+        return false;
+    }
+    if expected_token.is_empty() {
+        return false;
+    }
+    match provided_token {
+        Some(token) => constant_time_eq(token.as_bytes(), expected_token.as_bytes()),
+        None => false,
+    }
+}
+
+fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    a.iter().zip(b.iter()).fold(0u8, |accumulator, (x, y)| accumulator | (x ^ y)) == 0
+}
+
+#[cfg(test)]
+mod local_access_tests {
+    use super::*;
+
+    #[test]
+    fn unauthenticated_callers_are_rejected() {
+        let token = "token-abcdef0123456789";
+        assert!(!authorize_request(Some("127.0.0.1:3001"), None, token));
+        assert!(!authorize_request(Some("127.0.0.1:3001"), Some("wrong-token"), token));
+        assert!(!authorize_request(Some("127.0.0.1:3001"), Some(""), token));
+        assert!(!authorize_request(None, Some(token), token));
+        // No token configured: fail closed even for loopback callers.
+        assert!(!authorize_request(Some("127.0.0.1:3001"), Some(token), ""));
+    }
+
+    #[test]
+    fn non_loopback_hosts_are_rejected_even_with_a_valid_token() {
+        let token = "token-abcdef0123456789";
+        assert!(!authorize_request(Some("evil.example.com:3001"), Some(token), token));
+        assert!(!authorize_request(Some("192.168.1.10:3001"), Some(token), token));
+        assert!(!authorize_request(Some("[fe80::1]:3001"), Some(token), token));
+    }
+
+    #[test]
+    fn loopback_callers_with_the_expected_token_are_accepted() {
+        let token = "token-abcdef0123456789";
+        assert!(authorize_request(Some("127.0.0.1:3001"), Some(token), token));
+        assert!(authorize_request(Some("localhost:3001"), Some(token), token));
+        assert!(authorize_request(Some("[::1]:3001"), Some(token), token));
+    }
+
+    #[test]
+    fn token_comparison_is_exact() {
+        assert!(constant_time_eq(b"abc", b"abc"));
+        assert!(!constant_time_eq(b"abc", b"abd"));
+        assert!(!constant_time_eq(b"abc", b"abcd"));
+    }
+
+    #[test]
+    fn generated_tokens_are_long_and_hex() {
+        let token = generate_local_token();
+        assert_eq!(token.len(), 64);
+        assert!(token.chars().all(|character| character.is_ascii_hexdigit()));
+        assert_ne!(generate_local_token(), generate_local_token());
     }
 }

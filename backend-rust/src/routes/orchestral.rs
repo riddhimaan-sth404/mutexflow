@@ -41,6 +41,7 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/status", get(status))
         .route("/agents", get(agents))
         .route("/findings", get(findings))
+        .route("/findings/submit", post(submit_findings))
         .route("/approvals", get(pending_approvals))
         .route("/approvals/:id/approve", post(approve))
         .route("/approvals/:id/deny", post(deny))
@@ -142,6 +143,23 @@ async fn get_local_analysis_job(
         return Err(error_response(StatusCode::BAD_REQUEST, "Invalid job identifier".to_string()));
     }
     state.orchestral.get_local_analysis_job(&id).await
+        .map(Json)
+        .map_err(|e| error_response(StatusCode::BAD_GATEWAY, e))
+}
+
+#[derive(Deserialize)]
+pub struct FindingsSubmitRequest {
+    pub findings: Value,
+}
+
+/// The restricted local-analysis worker never holds the Citadel admin key. It
+/// submits findings through this authenticated backend proxy, which forwards
+/// them to Citadel with the privileged key held server-side.
+async fn submit_findings(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<FindingsSubmitRequest>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    state.orchestral.core_post_json("/api/v1/findings", &payload.findings).await
         .map(Json)
         .map_err(|e| error_response(StatusCode::BAD_GATEWAY, e))
 }

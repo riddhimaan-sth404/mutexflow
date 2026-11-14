@@ -1,4 +1,5 @@
 use axum::{
+    http::{header::AUTHORIZATION, header::CONTENT_TYPE, HeaderName, Method},
     routing::{get, post},
     Router,
 };
@@ -10,7 +11,7 @@ use std::env;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
-use tower_http::cors::{AllowOrigin, Any, CorsLayer};
+use tower_http::cors::{AllowOrigin, CorsLayer};
 use tower_http::trace::TraceLayer;
 use tracing::info;
 
@@ -41,11 +42,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .parent()
         .unwrap_or_else(|| std::path::Path::new("."))
         .to_path_buf();
+    // Resolve or create the loopback API token before any consumer needs it.
+    let _api_token = backend_rust::routes::auth::ensure_local_api_token(&root);
+
     let orchestral = Arc::new(OrchestralManager::new(root.clone()));
     let jcode = Arc::new(backend_rust::services::jcode_manager::JcodeManager::new(root, orchestral.clone()));
-    if let Err(error) = jcode.start() {
-        tracing::warn!("[JCode] Runtime startup skipped: {}", error);
-    }
+    // JCode startup blocks on process spawn and a socket-connect loop; keep it
+    // off the async reactor while the Orchestral runtime starts concurrently.
+    let jcode_for_startup = jcode.clone();
+    let jcode_startup = tokio::task::spawn_blocking(move || jcode_for_startup.start());
     let (shutdown_tx, mut shutdown_rx) = tokio::sync::watch::channel(false);
     tokio::spawn(async move {
         shutdown_signal().await;
@@ -67,6 +72,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
+    if let Err(error) = jcode_startup.await.unwrap_or_else(|error| Err(format!("join JCode startup task: {error}"))) {
+        tracing::warn!("[JCode] Runtime startup skipped: {}", error);
+    }
+
     let state = Arc::new(AppState { supabase, port, orchestral: orchestral.clone(), jcode: jcode.clone() });
 
     // The desktop talks to the backend directly (without browser CORS). For
@@ -86,8 +95,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     || value.starts_with("https://[::1]:")
             }).unwrap_or(false)
         }))
-        .allow_methods(Any)
-        .allow_headers(Any);
+        .allow_methods([Method::GET, Method::POST, Method::OPTIONS])
+        .allow_headers([CONTENT_TYPE, AUTHORIZATION, HeaderName::from_static("x-mutexflow-token")]);
 
     let app = Router::new()
         .route("/health", get(|| async { axum::Json(serde_json::json!({ "status": "ok", "service": "mutexflow-backend" })) }))
@@ -97,8 +106,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/api/v1/agent/process-standard", post(routes::agent::process_standard))
         .route("/api/v1/integrations/dispatch", post(routes::integrations::dispatch_integrations))
         .route("/api/v1/integrations/status", get(routes::integrations::get_integrations_status))
-        .nest("/api/v1/orchestral", routes::orchestral::router())
-        .nest("/api/v1/jcode", routes::jcode::router())
+        .nest("/api/v1/orchestral", routes::orchestral::router().layer(axum::middleware::from_fn(routes::auth::require_local_access)))
+        .nest("/api/v1/jcode", routes::jcode::router().layer(axum::middleware::from_fn(routes::auth::require_local_access)))
         .layer(cors)
         .layer(TraceLayer::new_for_http())
         .with_state(state);
