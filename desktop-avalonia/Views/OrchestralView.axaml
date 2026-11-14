@@ -11,7 +11,7 @@
           <TextBlock Text="Orchestral Runtime" FontSize="22" FontWeight="Bold" Foreground="{StaticResource TextMain}" />
           <TextBlock Text="Agent execution, approvals, local analysis and audit history." FontSize="13" Foreground="{StaticResource TextMuted}" />
         </StackPanel>
-        <Button Grid.Column="1" Classes="secondary" Command="{Binding RefreshCommand}" Content="Refresh" VerticalAlignment="Center" />
+        <Button Grid.Column="1" Margin="8,0,0,0" Classes="secondary" Command="{Binding RefreshCommand}" Content="Refresh" VerticalAlignment="Center" />
       </Grid>
 
       <Border Background="{StaticResource CardBg}" BorderBrush="{StaticResource BorderDark}" BorderThickness="1" CornerRadius="8" Padding="14">
@@ -45,7 +45,7 @@
           <TextBlock Text="JCode concurrent agent runtime" FontSize="16" FontWeight="SemiBold" Foreground="{StaticResource TextMain}" />
           <TextBlock Text="{Binding JcodeStatusMessage}" TextWrapping="Wrap" FontSize="12" Foreground="{StaticResource TextMuted}" />
           <TextBlock Text="Each session runs in JCode's isolated state home. Built-in tools are disabled until Citadel-mediated tool execution is available." TextWrapping="Wrap" FontSize="12" Foreground="{StaticResource TextMuted}" />
-          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+          <Grid ColumnDefinitions="*,Auto">
             <TextBox Text="{Binding JcodeWorkspace}" Watermark="Workspace path relative to MutexFlow root" />
             <Button Grid.Column="1" Classes="secondary" Command="{Binding CreateJcodeSessionCommand}" IsEnabled="{Binding JcodeConnected}" Content="Create agent session" />
           </Grid>
