@@ -141,16 +141,16 @@ class TestToolExecution(unittest.TestCase):
                          "native_port_scanner", "native_http_probe", "codeql_analyzer"):
                 self.assertNotIn(tool, registry.get_tools_for_role(role))
 
-    def test_extended_tools_opt_in_registers_dormant_tooling(self):
+    def test_extended_tools_cannot_be_enabled_by_environment(self):
         os.environ["MUTEXFLOW_ENABLE_EXTENDED_TOOLS"] = "1"
         try:
             registry = ToolRegistry()
-            names = {t["name"] for t in registry.list_tools()}
-            for tool in ("kali_terminal", "native_port_scanner", "native_http_probe", "codeql_analyzer"):
-                self.assertIn(tool, names)
-            self.assertIn("native_port_scanner", registry.get_tools_for_role("sentinel_recon"))
-            self.assertIn("native_http_probe", registry.get_tools_for_role("cerberus_dast"))
-            self.assertIn("codeql_analyzer", registry.get_tools_for_role("athena_sast"))
+            names = {tool["name"] for tool in registry.list_tools()}
+            self.assertEqual(names, {"native_secret_scanner"})
+            from orchestral_worker.tools.registry import extended_tools_enabled
+            self.assertFalse(extended_tools_enabled())
+            for role in ("sentinel_recon", "cerberus_dast", "athena_sast", "archon_coordinator"):
+                self.assertEqual(registry.get_tools_for_role(role), ["native_secret_scanner"])
         finally:
             os.environ.pop("MUTEXFLOW_ENABLE_EXTENDED_TOOLS", None)
 
