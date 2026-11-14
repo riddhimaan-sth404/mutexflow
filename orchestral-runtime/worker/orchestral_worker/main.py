@@ -4,11 +4,22 @@ import argparse
 from orchestral_worker.client import OrchestralClient
 from orchestral_worker.guard.scope import ScopeGuard, ScopeViolationError
 from orchestral_worker.guard.hitl import HITLInterceptor, RiskTier
-from orchestral_worker.swarm.coordinator import CoordinatedSwarmCoordinator
-from orchestral_worker.swarm.independent import IndependentWorkerPool
+
+_TRUTHY = {"1", "true", "yes", "on"}
 
 
 def main():
+    # The autonomous swarm and its offensive tooling are DORMANT in
+    # MutexFlow. Refuse to start without an explicit operator opt-in.
+    if os.environ.get("MUTEXFLOW_ENABLE_EXTENDED_TOOLS", "").strip().lower() not in _TRUTHY:
+        print("[!] The autonomous security swarm and offensive tooling are dormant in MutexFlow.")
+        print("[!] Set MUTEXFLOW_ENABLE_EXTENDED_TOOLS=1 only after completing a documented")
+        print("[!] target-authorization and sandbox review. See SECURITY.md at the repo root.")
+        sys.exit(2)
+
+    from orchestral_worker.swarm.coordinator import CoordinatedSwarmCoordinator
+    from orchestral_worker.swarm.independent import IndependentWorkerPool
+
     parser = argparse.ArgumentParser(
         description="Orchestral Python Security Agent Worker & Swarm Runner"
     )

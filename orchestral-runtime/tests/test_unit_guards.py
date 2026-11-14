@@ -4,6 +4,7 @@
 These tests do not require the core daemon or a container runtime.
 """
 
+import os
 import sys
 import unittest
 from pathlib import Path
@@ -128,12 +129,30 @@ class TestToolExecution(unittest.TestCase):
         self.assertEqual(result["status"], "error")
         self.assertIn("RuntimeError: boom", result["error"])
 
-    def test_registry_role_mapping(self):
+    def test_default_registry_ships_only_passive_tools(self):
         registry = ToolRegistry()
-        self.assertIn("native_port_scanner", registry.get_tools_for_role("sentinel_recon"))
-        self.assertIn("native_http_probe", registry.get_tools_for_role("cerberus_dast"))
-        self.assertIn("codeql_analyzer", registry.get_tools_for_role("athena_sast"))
-        self.assertIn("native_secret_scanner", registry.get_tools_for_role("justiciar_triage"))
+        names = {t["name"] for t in registry.list_tools()}
+        self.assertEqual(names, {"native_secret_scanner"})
+        # Dormant offensive tooling is never advertised for any role unless
+        # the operator explicitly opts in.
+        for role in ("sentinel_recon", "cerberus_dast", "athena_sast",
+                     "justiciar_triage", "archon_coordinator", "unlisted_role"):
+            for tool in ("kali_terminal", "tartarus_terminal", "tartarus_exec",
+                         "native_port_scanner", "native_http_probe", "codeql_analyzer"):
+                self.assertNotIn(tool, registry.get_tools_for_role(role))
+
+    def test_extended_tools_opt_in_registers_dormant_tooling(self):
+        os.environ["MUTEXFLOW_ENABLE_EXTENDED_TOOLS"] = "1"
+        try:
+            registry = ToolRegistry()
+            names = {t["name"] for t in registry.list_tools()}
+            for tool in ("kali_terminal", "native_port_scanner", "native_http_probe", "codeql_analyzer"):
+                self.assertIn(tool, names)
+            self.assertIn("native_port_scanner", registry.get_tools_for_role("sentinel_recon"))
+            self.assertIn("native_http_probe", registry.get_tools_for_role("cerberus_dast"))
+            self.assertIn("codeql_analyzer", registry.get_tools_for_role("athena_sast"))
+        finally:
+            os.environ.pop("MUTEXFLOW_ENABLE_EXTENDED_TOOLS", None)
 
 
 class TestSecretScannerReadGuard(unittest.TestCase):
