@@ -36,9 +36,10 @@ token sent as the `X-MutexFlow-Token` header, in addition to a loopback
 `Host` header check. This defends against DNS-rebinding and cross-origin
 requests from the browser even when CORS is bypassed.
 
-- On first run the backend generates a 256-bit token from the operating
-  system PRNG (with a deterministic fallback for constrained environments)
-  and persists it owner-only (0600) at `.mutexflow/backend-token`.
+- On first run the backend generates a 256-bit token exclusively from the
+  operating system cryptographic random-number generator and persists it
+  owner-only (0600) at `.mutexflow/backend-token`. Startup fails closed if
+  secure randomness or safe token-file persistence is unavailable.
 - Set `MUTEXFLOW_API_TOKEN` to supply your own token; it takes precedence.
 - The Avalonia desktop client attaches the header automatically from the
   environment variable or the token file. CI supplies its own value.

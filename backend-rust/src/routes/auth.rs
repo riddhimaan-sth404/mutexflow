@@ -307,78 +307,97 @@ static LOCAL_API_TOKEN: OnceLock<String> = OnceLock::new();
 /// `.mutexflow/backend-token`.
 pub fn ensure_local_api_token(root: &std::path::Path) -> String {
     LOCAL_API_TOKEN.get().cloned().unwrap_or_else(|| {
-        let token = match std::env::var("MUTEXFLOW_API_TOKEN") {
-            Ok(value) if value.trim().len() >= 16 => value.trim().to_string(),
-            _ => load_or_create_token_file(root),
-        };
+        let token = configured_local_token().unwrap_or_else(|| load_or_create_token_file(root));
         let _ = LOCAL_API_TOKEN.set(token.clone());
         token
     })
 }
 
-fn load_or_create_token_file(root: &std::path::Path) -> String {
-    let dir = root.join(".mutexflow");
-    let path = dir.join("backend-token");
-    if let Ok(existing) = std::fs::read_to_string(&path) {
-        let token = existing.trim().to_string();
-        if token.len() >= 16 {
-            return token;
-        }
-    }
-    let token = generate_local_token();
-    let _ = std::fs::create_dir_all(&dir);
-    #[cfg(unix)]
-    {
-        use std::io::Write as _;
-        use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
-        if let Ok(mut file) = std::fs::OpenOptions::new()
-            .mode(0o600)
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .open(&path)
-        {
-            let _ = writeln!(file, "{token}");
-        }
-        let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
-    }
-    #[cfg(not(unix))]
-    {
-        let _ = std::fs::write(&path, &token);
-    }
-    token
+fn configured_local_token() -> Option<String> {
+    configured_local_token_value(std::env::var("MUTEXFLOW_API_TOKEN").ok().as_deref())
 }
 
-/// Generate a random local token (hex-encoded 256 bits).
-pub fn generate_local_token() -> String {
+fn configured_local_token_value(value: Option<&str>) -> Option<String> {
+    value.map(str::trim).filter(|value| value.len() >= 16).map(str::to_string)
+}
+
+fn load_or_create_token_file(root: &std::path::Path) -> String {
+    use std::io::Write as _;
+
+    let dir = root.join(".mutexflow");
+    let path = dir.join("backend-token");
+    std::fs::create_dir_all(&dir)
+        .unwrap_or_else(|error| panic!("create private MutexFlow state directory: {error}"));
+    let directory = std::fs::symlink_metadata(&dir)
+        .unwrap_or_else(|error| panic!("inspect MutexFlow state directory: {error}"));
+    if directory.file_type().is_symlink() || !directory.is_dir() {
+        panic!("MutexFlow state directory must be a real directory, not a symlink");
+    }
     #[cfg(unix)]
     {
-        use std::io::Read as _;
-        let mut bytes = [0u8; 32];
-        if let Ok(mut random) = std::fs::File::open("/dev/urandom") {
-            if random.read_exact(&mut bytes).is_ok() {
-                return hex_encode(&bytes);
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+        if directory.uid() != unsafe { libc::geteuid() } {
+            panic!("MutexFlow state directory must be owned by the current user");
+        }
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700))
+            .unwrap_or_else(|error| panic!("restrict MutexFlow state directory: {error}"));
+    }
+
+    loop {
+        match std::fs::symlink_metadata(&path) {
+            Ok(metadata) => {
+                if metadata.file_type().is_symlink() || !metadata.is_file() {
+                    panic!("MutexFlow backend token must be a regular file, not a symlink");
+                }
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+                    if metadata.uid() != unsafe { libc::geteuid() } {
+                        panic!("MutexFlow backend token must be owned by the current user");
+                    }
+                    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))
+                        .unwrap_or_else(|error| panic!("restrict MutexFlow backend token: {error}"));
+                }
+                let token = std::fs::read_to_string(&path)
+                    .unwrap_or_else(|error| panic!("read MutexFlow backend token: {error}"));
+                let token = token.trim().to_string();
+                if token.len() != 64 || !token.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+                    panic!("MutexFlow backend-token file is invalid; remove it and restart to generate a new token");
+                }
+                return token;
             }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                let token = generate_local_token();
+                let mut options = std::fs::OpenOptions::new();
+                options.write(true).create_new(true);
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::OpenOptionsExt;
+                    options.mode(0o600);
+                }
+                match options.open(&path) {
+                    Ok(mut file) => {
+                        file.write_all(token.as_bytes())
+                            .and_then(|_| file.write_all(b"\n"))
+                            .and_then(|_| file.sync_all())
+                            .unwrap_or_else(|error| panic!("persist MutexFlow backend token: {error}"));
+                        return token;
+                    }
+                    Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                    Err(error) => panic!("create MutexFlow backend token: {error}"),
+                }
+            }
+            Err(error) => panic!("inspect MutexFlow backend token: {error}"),
         }
     }
-    // Fallback when the OS entropy source is unavailable: mix high-resolution
-    // timing and address entropy through SplitMix64.
-    let mut state = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|duration| duration.as_nanos() as u64)
-        .unwrap_or(0x9E37_79B9_7F4A_7C15);
-    state ^= &state as *const u64 as u64;
+}
+
+/// Generate a random local token (hex-encoded 256 bits) using the operating
+/// system cryptographic random-number generator. Fail closed if it is unavailable.
+pub fn generate_local_token() -> String {
     let mut bytes = [0u8; 32];
-    for chunk in bytes.chunks_mut(8) {
-        state = state.wrapping_add(0x9E37_79B9_7F4A_7C15);
-        let mut z = state;
-        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
-        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
-        z ^= z >> 31;
-        for (index, byte) in chunk.iter_mut().enumerate() {
-            *byte = (z >> (8 * index)) as u8;
-        }
-    }
+    getrandom::getrandom(&mut bytes)
+        .expect("OS cryptographic random source unavailable; refusing to create a local API token");
     hex_encode(&bytes)
 }
 
@@ -408,12 +427,7 @@ pub async fn require_local_access(
 }
 
 fn expected_local_token() -> String {
-    if let Ok(value) = std::env::var("MUTEXFLOW_API_TOKEN") {
-        if !value.trim().is_empty() {
-            return value;
-        }
-    }
-    LOCAL_API_TOKEN.get().cloned().unwrap_or_default()
+    configured_local_token().or_else(|| LOCAL_API_TOKEN.get().cloned()).unwrap_or_default()
 }
 
 /// Pure authorization decision: loopback Host (DNS-rebinding defense) plus an
@@ -488,5 +502,14 @@ mod local_access_tests {
         assert_eq!(token.len(), 64);
         assert!(token.chars().all(|character| character.is_ascii_hexdigit()));
         assert_ne!(generate_local_token(), generate_local_token());
+    }
+
+    #[test]
+    fn short_environment_tokens_are_ignored_consistently() {
+        assert!(configured_local_token_value(Some("short")).is_none());
+        assert_eq!(
+            configured_local_token_value(Some("0123456789abcdef")),
+            Some("0123456789abcdef".to_string())
+        );
     }
 }
