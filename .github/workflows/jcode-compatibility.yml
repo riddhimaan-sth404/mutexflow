@@ -66,6 +66,30 @@ jobs:
           JCODE_BINARY: ${{ github.workspace }}/jcode-upstream/target/release/jcode
         run: cargo test --manifest-path backend-rust/Cargo.toml --test jcode_runtime_smoke -- --nocapture
 
+  windows-isolated-runtime-smoke:
+    name: Isolated JCode runtime smoke (Windows)
+    runs-on: windows-latest
+    steps:
+      - name: Checkout MutexFlow
+        uses: actions/checkout@v4
+      - name: Checkout pinned JCode source
+        uses: actions/checkout@v4
+        with:
+          repository: 1jehuang/jcode
+          ref: ${{ env.JCODE_UPSTREAM_SHA }}
+          path: jcode-upstream
+      - name: Install stable Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Build headless JCode runtime
+        working-directory: jcode-upstream
+        run: cargo build --locked --release --no-default-features --bin jcode
+      - name: Exercise isolated backend lifecycle
+        env:
+          JCODE_RUNTIME_SMOKE: "1"
+          JCODE_AUTOSTART: "true"
+          JCODE_BINARY: ${{ github.workspace }}\\jcode-upstream\\target\\release\\jcode.exe
+        run: cargo test --manifest-path backend-rust/Cargo.toml --test jcode_runtime_smoke -- --nocapture
+
   windows-sdk-contract:
     name: JCode SDK and Harness API (Windows)
     runs-on: windows-latest

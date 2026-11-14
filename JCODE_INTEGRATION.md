@@ -59,7 +59,7 @@ Shell/process execution, file writes, network access, MCP, self-development, act
 - Provider keys are passed only through the JCode SDK credential API and stored by JCode in its owner-only credential store.
 - The manager checks the child and API health before reuse and attempts to restart the managed runtime on the next operation after a crash.
 - Sessions are reconfigured with the restricted tool set before each turn because JCode tool configuration is memory-only.
-- The event buffer retains the newest 4,000 events. It is a live UI feed, not a durable transcript or audit ledger; Citadel remains the audit source.
+- The event buffer retains the newest 2,048 events. It is a live UI feed, not a durable transcript or audit ledger; Citadel remains the audit source.
 - A turn reports provider usage counters and elapsed time when supplied by JCode. Cost is not fabricated when pricing metadata is unavailable.
 
 ## Configuration
@@ -80,7 +80,7 @@ Never commit the real `.env` or credential files.
 The branch includes:
 
 - JCode SDK/API compatibility checks on Linux and Windows.
-- A Linux build of the pinned JCode executable and an isolated backend lifecycle smoke test.
+- Linux and Windows builds of the pinned JCode executable, each followed by an isolated backend lifecycle smoke test.
 - Rust tests for workspace path confinement, secret-file exclusion, and bounded event retention.
 - Full MutexFlow/Orchestral CI, including backend tests, Citadel tests, Python worker tests, Avalonia build, Windows integration smoke, and managed-runtime end-to-end tests.
 
