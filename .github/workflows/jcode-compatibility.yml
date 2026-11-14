@@ -90,7 +90,41 @@ jobs:
           JCODE_RUNTIME_SMOKE: "1"
           JCODE_AUTOSTART: "true"
           JCODE_BINARY: ${{ github.workspace }}\\jcode-upstream\\target\\debug\\jcode.exe
-        run: cargo test --manifest-path backend-rust/Cargo.toml --test jcode_runtime_smoke -- --nocapture
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Continue'
+          cargo test --manifest-path backend-rust/Cargo.toml --test jcode_runtime_smoke -- --nocapture 2>&1 | Tee-Object -FilePath smoke-log.txt
+          exit $LASTEXITCODE
+      - name: Publish smoke diagnostics to job summary
+        if: always()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $summary = $env:GITHUB_STEP_SUMMARY
+          Add-Content -Path $summary -Value '## Isolated JCode runtime smoke (Windows) diagnostics'
+          if (Test-Path smoke-log.txt) {
+            Add-Content -Path $summary -Value '### cargo test output (last 400 lines)'
+            Get-Content smoke-log.txt | Select-Object -Last 400 | ForEach-Object { Add-Content -Path $summary -Value $_ }
+          } else {
+            Add-Content -Path $summary -Value 'cargo test produced no captured output.'
+          }
+          $jcodeLogs = Join-Path (Get-Location) '.mutexflow/jcode/logs'
+          if (Test-Path $jcodeLogs) {
+            Add-Content -Path $summary -Value '### jcode sidecar logs'
+            Get-ChildItem $jcodeLogs | ForEach-Object {
+              Add-Content -Path $summary -Value ('#### ' + $_.Name)
+              Get-Content $_.FullName -ErrorAction SilentlyContinue | Select-Object -Last 200 | ForEach-Object { Add-Content -Path $summary -Value $_ }
+            }
+          } else {
+            Add-Content -Path $summary -Value ('no jcode sidecar logs at ' + $jcodeLogs)
+          }
+          $servers = Join-Path (Get-Location) '.mutexflow/jcode/servers.json'
+          if (Test-Path $servers) {
+            Add-Content -Path $summary -Value '### servers.json'
+            Add-Content -Path $summary -Value (Get-Content $servers -Raw)
+          } else {
+            Add-Content -Path $summary -Value ('no servers.json at ' + $servers)
+          }
 
   windows-sdk-contract:
     name: JCode SDK and Harness API (Windows)
