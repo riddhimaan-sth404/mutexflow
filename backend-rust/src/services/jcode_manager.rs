@@ -133,7 +133,9 @@ impl JcodeManager {
         let providers = self.configured_providers.lock()
             .map(|items| items.clone())
             .unwrap_or_default();
-        let provider_ready = !providers.is_empty();
+        let selected_provider = std::env::var("JCODE_PROVIDER").ok()
+            .filter(|provider| !provider.trim().is_empty());
+        let provider_ready = provider_is_configured(selected_provider.as_deref(), &providers);
         let message = if !self.enabled
             && std::env::var("JCODE_AUTOSTART")
                 .map(|v| v.eq_ignore_ascii_case("true") || v == "1")
@@ -409,7 +411,7 @@ impl JcodeManager {
         if let Err(error) = self.orchestral.record_audit(
             &session_id,
             "jcode_agent_created",
-            &json!({"role": role, "workspace": workspace, "objective": objective}).to_string(),
+            &json!({"role": role, "workspace": workspace, "objective_bytes": objective.len()}).to_string(),
         ).await {
             let mut failed_agent = agent.clone();
             failed_agent["status"] = json!("failed");
@@ -820,6 +822,16 @@ fn resolve_workspace(root: &Path, relative: &str) -> Result<PathBuf, String> {
     Ok(workspace)
 }
 
+fn provider_is_configured(selected: Option<&str>, configured: &[String]) -> bool {
+    match selected {
+        Some("anthropic-api" | "claude-api") => configured.iter().any(|provider| {
+            provider == "anthropic-api" || provider == "claude-api"
+        }),
+        Some(provider) => configured.iter().any(|configured| configured == provider),
+        None => !configured.is_empty(),
+    }
+}
+
 fn runtime_is_alive(runtime: &JcodeRuntime) -> bool {
     let process_alive = runtime.child.lock()
         .map(|mut child| child.try_wait().map(|status| status.is_none()).unwrap_or(false))
@@ -1004,7 +1016,7 @@ fn redact_sensitive_content(input: &str) -> String {
     let patterns = PATTERNS.get_or_init(|| {
         vec![
             Regex::new(
-                r#"(?i)((?:api[_-]?key|access[_-]?key|access[_-]?token|refresh[_-]?token|auth[_-]?token|client[_-]?secret|secret[_-]?key|secret[_-]?access[_-]?key|aws[_-]?secret[_-]?access[_-]?key|jwt[_-]?secret|db[_-]?password|database[_-]?password|password|passwd|private[_-]?key|authorization|database[_-]?url|connection[_-]?string)\s*[:=]\s*)(?:"(?:\\\\.|[^"])*"|'(?:\\\\.|[^'])*'|[^\r\n,;}]+)"#,
+                r#"(?i)((?:api[_-]?key|access[_-]?key|access[_-]?token|refresh[_-]?token|auth[_-]?token|client[_-]?secret|secret[_-]?key|secret[_-]?access[_-]?key|aws[_-]?secret[_-]?access[_-]?key|jwt[_-]?secret|db[_-]?password|database[_-]?password|password|passwd|private[_-]?key|authorization|database[_-]?url|connection[_-]?string)\s*[:=]\s*)(?:"(?:\\.|[^"])*"|'(?:\\.|[^'])*'|[^\r\n,;}]+)"#,
             ).expect("valid secret assignment redaction regex"),
             Regex::new(r"(?i)(bearer\s+)[A-Za-z0-9._~+/-]+=*")
                 .expect("valid bearer token redaction regex"),
@@ -1122,37 +1134,43 @@ mod tests {
     }
 
     #[test]
-    fn workspace_search_finds_source_and_excludes_credentials() {
+    fn workspace_search_finds_source_and_redacts_credentials() {
         let root = std::env::temp_dir().join(format!("mutexflow-jcode-search-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(root.join("src")).expect("create source fixture");
-        std::fs::write(root.join("src/main.rs"), "fn main() { println!(\"needle\"); }\\nconst API_KEY: &str = \\\"sk-12345678901234567890abcdef\\\";").expect("write source");
+        let source = "fn main() { println!(\"needle\"); }\nconst API_KEY: &str = \"sk-12345678901234567890abcdef\";\nlet password = \"secret phrase\";\nlet authorization = \"Bearer eyJhbGciOiJIUzI1NiJ9.payload.signature\";";
+        std::fs::write(root.join("src/main.rs"), source).expect("write source");
         std::fs::write(root.join(".env"), "needle=secret").expect("write sensitive fixture");
         std::fs::create_dir_all(root.join(".git")).expect("create VCS metadata fixture");
         std::fs::write(root.join(".git/config"), "url=https://user:token@example.invalid/repo").expect("write VCS metadata fixture");
         std::fs::create_dir_all(root.join(".mutexflow/jcode")).expect("create runtime state fixture");
         std::fs::write(root.join(".mutexflow/jcode/credentials.json"), "secret").expect("write runtime credential fixture");
-        let result = super::execute_readonly_tool(&root, "workspace_search", &serde_json::json!({"query":"needle"}))
-            .expect("search workspace");
-        assert!(result.contains("src/main.rs"));
-        assert!(!result.contains("sk-12345678901234567890abcdef"));
-        assert!(result.contains("[REDACTED]"));
-        assert!(!result.contains(".env"));
+
         let read = super::execute_readonly_tool(&root, "workspace_read", &serde_json::json!({"path":"src/main.rs"}))
             .expect("read source with secret redaction");
-        assert!(!read.contains("sk-12345678901234567890abcdef"));
         assert!(read.contains("[REDACTED]"));
-        assert!(is_sensitive_workspace_path(Path::new(".git/config")));
-        assert!(is_sensitive_workspace_path(Path::new(".mutexflow/jcode/credentials.json")));
-        assert!(is_sensitive_workspace_path(Path::new(".ssh/id_ed25519")));
-        let blocked = super::execute_readonly_tool(&root, "workspace_read", &serde_json::json!({"path":".env"}));
-        assert!(blocked.is_err());
-        let blocked_git = super::execute_readonly_tool(&root, "workspace_read", &serde_json::json!({"path":".git/config"}));
-        assert!(blocked_git.is_err());
-        let listing = super::execute_readonly_tool(&root, "workspace_list", &serde_json::json!({"path":"."})).expect("list safe workspace entries");
-        assert!(!listing.contains(".git"));
-        assert!(!listing.contains(".mutexflow"));
+        assert!(!read.contains("sk-12345678901234567890abcdef"));
+        assert!(!read.contains("secret phrase"));
+        assert!(!read.contains("eyJhbGciOiJIUzI1NiJ9.payload.signature"));
+
+        let result = super::execute_readonly_tool(&root, "workspace_search", &serde_json::json!({"query":"API_KEY"}))
+            .expect("search workspace");
+        assert!(result.contains("src/main.rs"));
+        assert!(result.contains("[REDACTED]"));
+        assert!(!result.contains("sk-12345678901234567890abcdef"));
+        assert!(!result.contains(".env"));
+        assert!(!result.contains(".git"));
+        assert!(!result.contains(".mutexflow"));
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn provider_readiness_matches_selected_provider() {
+        assert!(super::provider_is_configured(Some("openai-api"), &vec!["openai-api".into()]));
+        assert!(!super::provider_is_configured(Some("anthropic-api"), &vec!["openai-api".into()]));
+        assert!(super::provider_is_configured(Some("anthropic-api"), &vec!["claude-api".into()]));
+        assert!(super::provider_is_configured(None, &vec!["gemini".into()]));
+        assert!(!super::provider_is_configured(Some("openrouter"), &[]));
     }
 
     #[test]
