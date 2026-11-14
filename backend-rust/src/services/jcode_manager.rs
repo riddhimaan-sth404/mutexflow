@@ -577,7 +577,12 @@ impl JcodeManager {
     pub fn shutdown(&self) {
         let _startup = self.startup_lock.lock().ok();
         let runtime = self.runtime.lock().ok().and_then(|mut slot| slot.take());
-        drop(runtime);
+        if let Some(runtime) = runtime {
+            // Active blocking turns may still hold Arc clones. Terminate the
+            // child processes explicitly rather than waiting for those tasks
+            // to release the final Arc during backend shutdown.
+            runtime.terminate();
+        }
     }
 
     pub fn latest_event_sequence(&self) -> u64 {
