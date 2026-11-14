@@ -1,7 +1,8 @@
 # DORMANT TOOLING (not shipped enabled by MutexFlow): this module is not
-# registered by the default ToolRegistry and is never enabled in the managed
-# MutexFlow worker. It requires an explicit MUTEXFLOW_ENABLE_EXTENDED_TOOLS=1
-# opt-in plus a documented authorization and sandbox review. See SECURITY.md.
+# imported, registered, or launched by the managed worker. There is no runtime
+# environment-variable opt-in. Reintroduction requires a separately reviewed
+# sandbox, documented target authorization, Citadel approval, and audit design.
+# See SECURITY.md.
 import json
 import sys
 from typing import List, Dict, Any, Optional
