@@ -2,66 +2,96 @@
 
 ## Decision
 
-Integrate JCode through its supported Rust SDK and versioned Harness API, not by copying its entire application or replacing Orchestral. JCode is a high-performance agent harness; it is not a drop-in replacement for the Citadel policy/control plane or VigilEngine's restricted analysis worker.
+JCode is integrated as the Rust agent-session runtime behind MutexFlow and Orchestral. It does not replace Citadel's policy/control plane, the existing passive local-analysis worker, or Avalonia. The integration uses JCode's supported Rust SDK and versioned Harness API rather than copying its TUI or creating a second desktop product.
 
-Upstream inspected: https://github.com/1jehuang/jcode  
-License inspected: MIT  
-Pinned compatibility snapshot: `72f9c07ff59639221b9f371b759f784416bd1d12` (2026-11-13)
+- Upstream: https://github.com/1jehuang/jcode
+- License: MIT (upstream LICENSE inspected)
+- Pinned SDK/runtime snapshot: `72f9c07ff59639221b9f371b759f784416bd1d12`
 
 ## Responsibility split
 
-- **MutexFlow / Avalonia:** remains the only desktop UX and configuration surface.
-- **Orchestral / Citadel:** remains authoritative for workflow identity, workspace scope, policy decisions, approval gates, audit records, cancellation, and tool authorization.
-- **JCode:** supplies the agent session/runtime engine and its multi-session scheduling/runtime optimizations.
-- **Adapter:** connects to JCode through `jcode-sdk` / the versioned Harness API and translates events into Orchestral's versioned workflow contract.
+- **MutexFlow / Avalonia:** only desktop UX; agent roles, workspaces, session selection, live output, batch launches, and cancellation.
+- **MutexFlow Rust backend:** owns the JCode child process, credential provisioning, concurrency gate, session adapter, event buffer, and workspace tool execution.
+- **Orchestral / Citadel:** authoritative agent registry and append-only audit chain. Agent status transitions and every custom tool request/result are recorded through the authenticated Citadel admin API.
+- **JCode:** Rust agent harness, model-provider runtime, session persistence, turn execution, and concurrent independent agent sessions.
+- **VigilEngine Python worker:** remains available for its existing passive local-analysis workflow. JCode does not silently replace or bypass it.
 
-Do not import JCode's TUI or provider UI into the desktop. Do not create a second user-facing control plane.
+## End-to-end workflow
 
-## Required security boundary
+1. The backend starts JCode's API bridge as an isolated child process with a dedicated `.mutexflow/jcode` home and local IPC socket.
+2. Only the explicitly configured `JCODE_PROVIDER` and `JCODE_MODEL` settings are passed to the child. Provider API keys are not inherited in its environment.
+3. The backend provisions provider keys through `JcodeClient::set_api_key`; JCode persists them in its owner-only credential store. Supported key providers are OpenAI, Anthropic, OpenRouter, and Gemini.
+4. Avalonia creates a role-scoped agent session. The backend creates the JCode session with a fixed Orchestral system prompt, configures its custom tool allowlist, and registers the agent in Citadel.
+5. Up to eight independent JCode sessions can run concurrently. The batch API creates/registers each agent and schedules the turns through a bounded semaphore.
+6. JCode text/tool events are translated into a bounded, sequence-numbered event buffer. Avalonia polls the event endpoint and renders assistant text as it arrives.
+7. Each custom tool call must first be recorded in Citadel's audit chain. If the audit write fails, the tool call is denied. The result is also recorded.
+8. Agent completion, failure, and cancellation are reflected in Citadel. The desktop can cancel the selected session.
 
-1. Launch JCode as an isolated, managed instance with a dedicated application data directory.
-2. Set credential inheritance off. Never import the user's interactive JCode home or credentials implicitly.
-3. Keep the JCode API transport local-only (Unix socket or Windows named pipe); do not expose it on a network interface.
-4. Configure each session with an explicit tool allowlist. The safe initial configuration is an empty built-in tool set.
-5. Custom tool calls return to the MutexFlow backend adapter. The currently exposed tools are read-only workspace listing and UTF-8 file reading, with canonical-root confinement, traversal rejection, symlink rejection, and strict output limits.
-6. Citadel-mediated audit/approval for state-changing tools is not yet implemented. Keep writes, shell/process execution, network tools, MCP, self-development, and autonomous external actions disabled until that adapter exists.
-7. Treat model output and JCode events as untrusted input. Bound message sizes, file reads, directory listings, execution time, and concurrent sessions.
-8. Store provider credentials only through an explicit user-controlled credential flow. Never pass the MutexFlow admin key, JWT secret, Supabase credentials, or unrelated environment variables to JCode.
+## Agent roles
 
-## Integration stages
+The Avalonia UI offers four fixed roles:
 
-### J0 — Upstream contract baseline (complete)
-- Pin the upstream commit used by CI.
-- Compile and test the SDK, stable Harness API, and API bridge on Linux and Windows.
-- Keep this compatibility check separate from MutexFlow's own test suite.
+- `workspace_analyst`
+- `security_reviewer`
+- `dependency_reviewer`
+- `documentation_reviewer`
 
-### J1 — Managed runtime adapter (implementation added; CI validation pending)
-- Pin and depend on the upstream `jcode-sdk` crate at the inspected commit.
-- Launch JCode's API bridge as a backend-owned child process with a clean environment, isolated `JCODE_HOME`, and no inherited provider login files.
-- Connect through the supported Rust SDK with automatic shared-runtime startup disabled.
-- Add backend endpoints for runtime health, session listing/creation, concurrent message turns, and cancellation.
-- Configure each new session with an explicitly empty built-in tool allowlist and two backend-executed custom read-only tools (`workspace_read` and `workspace_list`).
-- Bound concurrent turns to eight and prompt payloads to 64 KiB.
-- Terminate the managed JCode process when the backend runtime is dropped.
-- The SDK's built-in `launch_instance` helper is intentionally not used because its launch options inherit the parent process environment; MutexFlow instead launches the bridge with an explicit environment allowlist.
+The role prompt is backend-authored. The user supplies an objective, but cannot replace the safety instructions or widen the workspace boundary.
 
-### J2 — Orchestral policy mediation (partial)
-- Built-in JCode tools remain disabled.
-- Backend custom tools provide confined, read-only workspace listing and file reading; tests cover traversal rejection and basic reads.
-- State-changing tools, shell, network, MCP, and native autonomous swarm workers remain disabled until Citadel policy evaluation, approval, audit, and sandboxing are integrated.
+## Tool and trust boundary
 
-### J3 — Avalonia presentation (pending)
-- Add JCode runtime status and session controls to the existing Orchestral dashboard.
-- Render streamed output and cancellation state; never expose raw IPC endpoints or secrets.
-- Surface actionable errors when the JCode binary, provider setup, or runtime is unavailable.
+JCode built-in tools are disabled. The only custom tools exposed to sessions are:
 
-### J4 — Performance and release gate
-- Compare Orchestral-only and Orchestral+JCode on identical hardware, models, prompts, workspaces, and concurrency.
-- Measure cold/warm startup, time-to-first-event/token, p50/p95 turn latency, throughput, peak RSS, incremental RSS per session, cancellation latency, and crash recovery.
-- Run at least 30 samples per benchmark case; publish raw samples and environment metadata.
-- Require functional parity and no security-boundary regressions before enabling JCode by default.
-- Report speedups only from measured results. A 12x improvement is a target to investigate, not an assumed outcome.
+- `workspace_read`: UTF-8 regular files up to 64 KiB.
+- `workspace_list`: immediate directory entries, capped at 200.
+- `workspace_search`: literal text search, capped at 1,000 files, 200 matches, and 1 MiB per file.
 
-## Current status
+All tools are read-only and run in the MutexFlow backend, not inside the JCode process. They enforce relative paths, canonical workspace-root containment, symlink rejection, and exclusions for common credential files/directories. The search tool skips generated/dependency directories such as `.git`, `target`, `node_modules`, `.venv`, and `vendor`.
 
-J0 is implemented. J1 backend integration and J3 Avalonia controls are implemented in the branch and awaiting CI validation. J2 is partial: only confined read-only tools are exposed; Citadel-mediated state-changing tools and native JCode swarm execution remain incomplete. J4 measured performance/release gates remain incomplete. The JCode runtime is disabled by default, requires an explicitly configured binary, and is only enabled when the backend binds to loopback. No speedup claim is made.
+Shell/process execution, file writes, network access, MCP, self-development, active port scanning, HTTP probing, and Kali terminal tools are not exposed. These capabilities must not be enabled by bypassing the backend adapter. They require a separately reviewed sandbox, explicit target authorization, Citadel policy evaluation, approval, and audit design.
+
+## Lifecycle and failure behavior
+
+- JCode autostart is disabled by default.
+- Enable it with `JCODE_AUTOSTART=true` and set `JCODE_BINARY` to the installed executable.
+- JCode autostart is blocked unless the backend binds to loopback (`127.0.0.1`, `localhost`, or `::1`).
+- The API bridge runs with a clean environment and a dedicated state home. MutexFlow cloud, OAuth, Supabase, and Orchestral secrets are not inherited.
+- Provider keys are passed only through the JCode SDK credential API and stored by JCode in its owner-only credential store.
+- The manager checks the child and API health before reuse and attempts to restart the managed runtime on the next operation after a crash.
+- Sessions are reconfigured with the restricted tool set before each turn because JCode tool configuration is memory-only.
+- The event buffer retains the newest 4,000 events. It is a live UI feed, not a durable transcript or audit ledger; Citadel remains the audit source.
+- A turn reports provider usage counters and elapsed time when supplied by JCode. Cost is not fabricated when pricing metadata is unavailable.
+
+## Configuration
+
+Copy `backend-rust/.env.example` to `backend-rust/.env` and set:
+
+- `JCODE_AUTOSTART=true`
+- `JCODE_BINARY=/path/to/jcode` (or the Windows executable path)
+- `ORCHESTRAL_ADMIN_KEY` and `ORCHESTRAL_JWT_SECRET` for the managed Citadel runtime
+- One provider key: `JCODE_OPENAI_API_KEY`, `JCODE_ANTHROPIC_API_KEY`, `JCODE_OPENROUTER_API_KEY`, or `JCODE_GEMINI_API_KEY`
+
+Optional `JCODE_PROVIDER` and `JCODE_MODEL` select the preferred provider/model. API-key provider identifiers are `openai-api`, `anthropic-api` (also accepted internally as `claude-api`), `openrouter`, and `gemini`; the backend infers the matching identifier when omitted. If no explicit provider is set, the backend infers one from configured keys in the order OpenAI, Anthropic, OpenRouter, Gemini. Existing `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `OPENROUTER_API_KEY`, and `GEMINI_API_KEY` variables are also accepted as provider-key sources.
+
+Never commit the real `.env` or credential files.
+
+## Validation
+
+The branch includes:
+
+- JCode SDK/API compatibility checks on Linux and Windows.
+- A Linux build of the pinned JCode executable and an isolated backend lifecycle smoke test.
+- Rust tests for workspace path confinement, secret-file exclusion, and bounded event retention.
+- Full MutexFlow/Orchestral CI, including backend tests, Citadel tests, Python worker tests, Avalonia build, Windows integration smoke, and managed-runtime end-to-end tests.
+
+The Windows JCode SDK workflow excludes only three upstream Git-for-Windows worktree tests that fail when creating worktree paths containing spaces. The full SDK test suite runs on Linux; Windows still compiles the API/server/SDK crates and runs the remaining SDK tests.
+
+## Performance claims and remaining scope
+
+JCode is the runtime engine in this integration, but no fixed speedup is claimed. A reproducible first-pass comparison is provided at `benchmarks/benchmark_jcode_runtime.py`. It compares the legacy Python AgentRunner's single OpenAI-compatible model call with a JCode managed turn using the same provider, model, system prompt, and user prompt; it reports raw samples, median/p95 latency, and median speedup. It intentionally disables tool execution and measures turn latency rather than model quality.
+
+Run it only after configuring the backend with `JCODE_PROVIDER=openai-api`, `JCODE_MODEL`, and an OpenAI API key, and installing the worker package. Set `JCODE_BENCH_TRIALS=30` for 30 measured samples per path. The script performs warmups and then makes billable provider requests; check the provider's pricing before running it. The benchmark does not measure peak RSS, per-session memory, concurrency throughput, or crash recovery; those remain separate release measurements.
+
+The requested 12x target remains an empirical target, not a guaranteed result. No speedup is claimed until the benchmark has been run on the target hardware and its raw output reviewed.
+
+This integration provides concurrent independent agents and live session output. It does not claim feature parity with JCode's native interactive swarm UI or with every original Orchestral autonomous security tool. Any expansion beyond the read-only local-workspace tools requires its own policy/sandbox review and tests.

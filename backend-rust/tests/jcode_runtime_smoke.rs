@@ -1,4 +1,6 @@
 use backend_rust::services::jcode_manager::JcodeManager;
+use backend_rust::services::orchestral_manager::OrchestralManager;
+use std::sync::Arc;
 use std::path::PathBuf;
 
 #[tokio::test]
@@ -15,7 +17,8 @@ async fn isolated_jcode_runtime_smoke() {
         .parent()
         .expect("backend has repository parent")
         .to_path_buf();
-    let manager = JcodeManager::new(root);
+    let orchestral = Arc::new(OrchestralManager::new(root.clone()));
+    let manager = JcodeManager::new(root, orchestral);
     manager.start().expect("JCode Harness starts in isolated home");
     assert!(manager.status().connected, "Harness API should answer health ping");
 

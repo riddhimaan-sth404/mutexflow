@@ -364,6 +364,16 @@ impl AppState {
     }
 
     // --- Audit Trail ---
+    pub async fn record_audit(&self, actor: &str, action: &str, details: &str) -> Result<(), String> {
+        self.db.log_audit(actor, action, details).map_err(|e| e.to_string())?;
+        let _ = self.tx.send(TelemetryEvent::SystemLog {
+            level: "info".to_string(),
+            message: format!("{}: {}", action, details),
+            timestamp: Utc::now(),
+        });
+        Ok(())
+    }
+
     pub async fn list_audit_logs(&self, limit: usize) -> Vec<AuditLogEntry> {
         self.db.list_audit_logs(limit).unwrap_or_default()
     }

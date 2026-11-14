@@ -42,7 +42,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap_or_else(|| std::path::Path::new("."))
         .to_path_buf();
     let orchestral = Arc::new(OrchestralManager::new(root.clone()));
-    let jcode = Arc::new(backend_rust::services::jcode_manager::JcodeManager::new(root));
+    let jcode = Arc::new(backend_rust::services::jcode_manager::JcodeManager::new(root, orchestral.clone()));
     if let Err(error) = jcode.start() {
         tracing::warn!("[JCode] Runtime startup skipped: {}", error);
     }

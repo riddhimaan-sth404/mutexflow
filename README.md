@@ -23,10 +23,11 @@ The desktop client also provides workflow presets, integration configuration, an
 | Desktop application | C#, .NET 9, Avalonia 11 | User interface, workflow selection, local model management, and integration settings |
 | Backend | Rust, Tokio, Axum | HTTP API, cloud-provider cascade, licensing checks, OAuth callbacks, and server-side integration dispatch |
 | Optional persistence | Supabase | License records and connected integration tokens |
-| Local inference | `llama-server` + GGUF | Runs a model on the user's machine |
+| Local inference | `llama-server` + GGUF | Runs a model on the user machine |
+| Agent runtime | JCode Rust Harness SDK | Runs isolated, concurrent Orchestral specialist sessions behind Citadel policy and audit mediation |
 | Cloud inference | OpenAI-compatible chat-completions APIs | Provider fallback for Standard mode |
 
-The desktop client communicates with the Rust backend over HTTP. Local inference is exposed through a llama.cpp-compatible endpoint at `http://localhost:8080`.
+The desktop client communicates with the Rust backend over HTTP. Local inference is exposed through a llama.cpp-compatible endpoint at `http://localhost:8080`. Optional JCode sessions are managed by the backend and surfaced through the existing Avalonia Orchestral dashboard.
 
 ## Current capabilities
 
@@ -202,6 +203,25 @@ The current Axum server exposes these routes:
 
 The default backend address is `http://localhost:3001`. The port can be changed with the `PORT` environment variable.
 
+### Orchestral and JCode runtime APIs
+
+When the managed runtime is configured, the backend also exposes:
+
+| Method | Route | Purpose |
+|---|---|---|
+| `GET` | `/api/v1/orchestral/health` | Citadel and worker health |
+| `GET` | `/api/v1/jcode/health` | JCode runtime and provider readiness |
+| `GET` | `/api/v1/jcode/sessions` | List JCode sessions |
+| `POST` | `/api/v1/jcode/sessions` | Create a Citadel-registered specialist agent |
+| `POST` | `/api/v1/jcode/sessions/{id}/run` | Run a turn in a selected agent session |
+| `POST` | `/api/v1/jcode/sessions/{id}/cancel` | Cancel a selected agent session |
+| `POST` | `/api/v1/jcode/swarm` | Start a batch of up to eight concurrent agents |
+| `GET` | `/api/v1/jcode/swarm/{id}` | Read batch status and results |
+| `POST` | `/api/v1/jcode/swarm/{id}/cancel` | Cancel every session in a batch |
+| `GET` | `/api/v1/jcode/events?after={sequence}` | Read live JCode UI events |
+
+JCode sessions require a healthy Citadel instance and a configured provider. Their only exposed tools are audited, read-only workspace read/list/search operations. See [JCODE_INTEGRATION.md](JCODE_INTEGRATION.md) for the detailed security boundary and provider setup.
+
 ## Development
 
 ### Build and test the Rust backend
@@ -243,7 +263,7 @@ Use the exact variable names in `.env.example`; do not place secrets in source c
 
 MutexFlow is under development and should not be treated as production-hardened.
 
-- The current backend binds to `0.0.0.0` and configures permissive CORS. Do not expose it to an untrusted network without first restricting network access, origins, and authentication.
+- The backend binds to loopback by default (`BIND_ADDR=127.0.0.1`) and restricts browser CORS origins to loopback. Do not change the bind address or expose local control endpoints to an untrusted network without a separate authentication and threat-model review.
 - Keep Supabase service-role keys, provider API keys, OAuth client secrets, and integration tokens private.
 - In the current desktop storage implementation, Windows secrets use DPAPI for the current user. The non-Windows fallback writes secret values as ordinary files; do not assume equivalent at-rest protection on Linux or macOS.
 - Review license verification and offline behavior before relying on licensing as an enforcement boundary.
@@ -283,7 +303,7 @@ A license file was not present in the repository root when this README was prepa
 
 ### Managed runtime setup
 
-The MutexFlow backend can manage the Orchestral Citadel and the restricted local-analysis worker as child processes. Runtime autostart is enabled only when a non-empty `ORCHESTRAL_ADMIN_KEY` is configured (and `ORCHESTRAL_AUTOSTART` is not disabled).
+The MutexFlow backend can manage the Orchestral Citadel and the restricted local-analysis worker as child processes. It can also manage the JCode Rust Harness as an isolated agent-session runtime. Runtime autostart is enabled only when a non-empty `ORCHESTRAL_ADMIN_KEY` is configured (and `ORCHESTRAL_AUTOSTART` is not disabled).
 
 1. Copy `backend-rust/.env.example` to `backend-rust/.env`.
 2. Generate a private random admin key locally (for example, with `openssl rand -hex 32`) and set it as `ORCHESTRAL_ADMIN_KEY`. Do not commit the real `.env` file.
@@ -291,7 +311,7 @@ The MutexFlow backend can manage the Orchestral Citadel and the restricted local
 4. Install Rust/Cargo and Python 3.10 or newer. The restricted worker uses the Python standard library plus the vendored Orchestral worker modules.
 5. Start MutexFlow with `run.bat` on Windows or launch the Rust backend from `backend-rust/` on other platforms.
 
-The backend binds to loopback by default (`BIND_ADDR=127.0.0.1`), starts Citadel on loopback port 8088 and the local worker on loopback port 8090, and restricts browser CORS origins to loopback. Remote binding requires an explicit `BIND_ADDR` override and should be protected by an authenticated reverse proxy/firewall. It shuts both down when the backend receives Ctrl+C. Set `ORCHESTRAL_CORE_BIN` to use a prebuilt Citadel executable instead of `cargo run`; set `PYTHON` to override the Python executable.
+The backend binds to loopback by default (`BIND_ADDR=127.0.0.1`), starts Citadel on loopback port 8088 and the local worker on loopback port 8090, and restricts browser CORS origins to loopback. To enable JCode, set `JCODE_AUTOSTART=true`, set `JCODE_BINARY` to the installed executable, and configure one provider key (`JCODE_OPENAI_API_KEY`, `JCODE_ANTHROPIC_API_KEY`, `JCODE_OPENROUTER_API_KEY`, or `JCODE_GEMINI_API_KEY`). JCode receives credentials only through its SDK and stores them in its owner-only credential store. See `JCODE_INTEGRATION.md` for the tool boundary, roles, and validation details. The reproducible comparison at `benchmarks/benchmark_jcode_runtime.py` measures the Python AgentRunner LLM call against the JCode managed turn using the same OpenAI model; benchmark requests are billable, and no fixed speedup is assumed. Remote binding requires an explicit `BIND_ADDR` override and should be protected by an authenticated reverse proxy/firewall. It shuts both down when the backend receives Ctrl+C. Set `ORCHESTRAL_CORE_BIN` to use a prebuilt Citadel executable instead of `cargo run`; set `PYTHON` to override the Python executable.
 
 ### Orchestral dashboard and supported workflow
 

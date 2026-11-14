@@ -23,11 +23,16 @@ public partial class OrchestralViewModel : ViewModelBase
     [ObservableProperty] private string _activeJobId = string.Empty;
     [ObservableProperty] private string _jcodeStatusMessage = "Checking JCode runtime...";
     [ObservableProperty] private string _jcodeWorkspace = ".";
+    [ObservableProperty] private string _jcodeRole = "workspace_analyst";
+    [ObservableProperty] private string _jcodeObjective = "Review this workspace and report evidence-backed engineering observations.";
+    private long _lastJcodeEventSequence;
     [ObservableProperty] private string _jcodePrompt = string.Empty;
     [ObservableProperty] private string _jcodeSessionId = string.Empty;
     [ObservableProperty] private string _jcodeResult = string.Empty;
     [ObservableProperty] private string _jcodeBatchTasks = string.Empty;
+    [ObservableProperty] private string _jcodeBatchId = string.Empty;
     [ObservableProperty] private bool _jcodeConnected;
+    [ObservableProperty] private bool _jcodeProviderReady;
     [ObservableProperty] private bool _isJcodeBusy;
 
     public ObservableCollection<OrchestralApproval> PendingApprovals { get; } = new();
@@ -35,6 +40,7 @@ public partial class OrchestralViewModel : ViewModelBase
     public ObservableCollection<OrchestralFinding> Findings { get; } = new();
     public ObservableCollection<OrchestralAuditEntry> AuditEntries { get; } = new();
     public ObservableCollection<string> JcodeSessions { get; } = new();
+    public ObservableCollection<string> JcodeRoles { get; } = new() { "workspace_analyst", "security_reviewer", "dependency_reviewer", "documentation_reviewer" };
 
     public OrchestralViewModel(IAgentClientService client)
     {
@@ -60,6 +66,7 @@ public partial class OrchestralViewModel : ViewModelBase
             ?? "MutexFlow backend is unavailable or Orchestral is not configured.";
         var jcodeStatus = await jcodeStatusTask;
         JcodeConnected = jcodeStatus?["connected"]?.GetValue<bool>() ?? false;
+        JcodeProviderReady = jcodeStatus?["provider_ready"]?.GetValue<bool>() ?? false;
         JcodeStatusMessage = jcodeStatus?["message"]?.GetValue<string>()
             ?? "JCode status unavailable. Check the MutexFlow backend.";
         var knownJcodeSessions = await jcodeSessionsTask;
@@ -171,11 +178,16 @@ public partial class OrchestralViewModel : ViewModelBase
     [RelayCommand]
     public async Task CreateJcodeSessionAsync()
     {
-        if (!JcodeConnected || IsJcodeBusy) return;
+        if (!JcodeConnected || !JcodeProviderReady || IsJcodeBusy) return;
         IsJcodeBusy = true;
         try
         {
-            var created = await _client.CreateJcodeSessionAsync(JcodeWorkspace.Trim());
+            if (!CoreHealthy)
+            {
+                JcodeStatusMessage = "Citadel must be healthy before creating an Orchestral-managed JCode agent.";
+                return;
+            }
+            var created = await _client.CreateJcodeSessionAsync(JcodeWorkspace.Trim(), JcodeRole, JcodeObjective.Trim());
             if (!created.Ok || string.IsNullOrWhiteSpace(created.SessionId))
             {
                 JcodeStatusMessage = created.Error ?? "Could not create JCode session.";
@@ -192,12 +204,22 @@ public partial class OrchestralViewModel : ViewModelBase
     [RelayCommand]
     public async Task RunJcodeSessionAsync()
     {
-        if (string.IsNullOrWhiteSpace(JcodeSessionId) || string.IsNullOrWhiteSpace(JcodePrompt) || IsJcodeBusy) return;
+        if (!JcodeProviderReady || string.IsNullOrWhiteSpace(JcodeSessionId) || string.IsNullOrWhiteSpace(JcodePrompt) || IsJcodeBusy) return;
         IsJcodeBusy = true;
         try
         {
             JcodeStatusMessage = "JCode agent is processing the task...";
-            var result = await _client.RunJcodeSessionAsync(JcodeSessionId, JcodePrompt);
+            JcodeResult = string.Empty;
+            var previousEvents = await _client.GetJcodeEventsAsync(0);
+            _lastJcodeEventSequence = previousEvents.Count == 0 ? 0 : previousEvents.Max(item => item["sequence"]?.GetValue<long>() ?? 0);
+            var runTask = _client.RunJcodeSessionAsync(JcodeSessionId, JcodePrompt);
+            while (!runTask.IsCompleted)
+            {
+                await RefreshJcodeEventsAsync(true);
+                await Task.Delay(150);
+            }
+            var result = await runTask;
+            await RefreshJcodeEventsAsync(true);
             if (!result.Ok)
             {
                 JcodeStatusMessage = result.Error ?? "JCode turn failed.";
@@ -223,13 +245,93 @@ public partial class OrchestralViewModel : ViewModelBase
         IsJcodeBusy = true;
         try
         {
+            if (!CoreHealthy)
+            {
+                JcodeStatusMessage = "Citadel must be healthy before starting an Orchestral agent batch.";
+                return;
+            }
+            JcodeResult = string.Empty;
+            var previousEvents = await _client.GetJcodeEventsAsync(0);
+            _lastJcodeEventSequence = previousEvents.Count == 0 ? 0 : previousEvents.Max(item => item["sequence"]?.GetValue<long>() ?? 0);
             JcodeStatusMessage = $"Starting {tasks.Length} concurrent JCode agent sessions...";
-            var result = await _client.RunJcodeBatchAsync(JcodeWorkspace.Trim(), tasks.ToList());
-            JcodeStatusMessage = result.Ok
-                ? $"Concurrent batch completed. Results: {result.Result}"
-                : $"Concurrent batch failed: {result.Error}";
+            var started = await _client.StartJcodeBatchAsync(JcodeWorkspace.Trim(), tasks.ToList());
+            if (!started.Ok || started.Batch is null)
+            {
+                JcodeStatusMessage = started.Error ?? "Could not start the JCode agent batch.";
+                return;
+            }
+            JcodeBatchId = started.Batch["batch_id"]?.GetValue<string>() ?? string.Empty;
+            if (started.Batch["session_ids"] is JsonArray sessionIds)
+            {
+                foreach (var item in sessionIds)
+                {
+                    var id = item?.GetValue<string>();
+                    if (string.IsNullOrWhiteSpace(id)) continue;
+                    if (!JcodeSessions.Contains(id)) JcodeSessions.Add(id);
+                    if (string.IsNullOrWhiteSpace(JcodeSessionId)) JcodeSessionId = id;
+                }
+            }
+            JsonObject? batchStatus = null;
+            while (!string.IsNullOrWhiteSpace(JcodeBatchId))
+            {
+                await RefreshJcodeEventsAsync();
+                batchStatus = await _client.GetJcodeBatchAsync(JcodeBatchId);
+                var state = batchStatus?["status"]?.GetValue<string>();
+                if (state is "completed" or "completed_with_errors" or "failed" or "cancelled")
+                    break;
+                if (batchStatus is null)
+                {
+                    JcodeStatusMessage = "Could not retrieve JCode batch status.";
+                    break;
+                }
+                await Task.Delay(300);
+            }
+            await RefreshJcodeEventsAsync();
+            var finalState = batchStatus?["status"]?.GetValue<string>() ?? "unknown";
+            JcodeStatusMessage = $"Concurrent JCode batch {finalState}. Batch ID: {JcodeBatchId}";
+            if (batchStatus?["results"] is JsonArray results)
+                JcodeResult += Environment.NewLine + Environment.NewLine + "Batch results:" + Environment.NewLine + results.ToJsonString();
         }
         finally { IsJcodeBusy = false; }
+    }
+
+    [RelayCommand]
+    public async Task CancelJcodeBatchAsync()
+    {
+        if (string.IsNullOrWhiteSpace(JcodeBatchId)) return;
+        var result = await _client.CancelJcodeBatchAsync(JcodeBatchId);
+        JcodeStatusMessage = result.Ok
+            ? $"Cancellation requested for batch {JcodeBatchId}."
+            : $"Batch cancellation failed: {result.Error}";
+    }
+
+    private async Task RefreshJcodeEventsAsync(bool onlySelectedSession = false)
+    {
+        var events = await _client.GetJcodeEventsAsync(_lastJcodeEventSequence);
+        foreach (var item in events)
+        {
+            var sequence = item["sequence"]?.GetValue<long>() ?? 0;
+            if (sequence > _lastJcodeEventSequence) _lastJcodeEventSequence = sequence;
+            if (onlySelectedSession && item["session_id"]?.GetValue<string>() != JcodeSessionId) continue;
+            var kind = item["kind"]?.GetValue<string>() ?? string.Empty;
+            var text = item["text"]?.GetValue<string>();
+            switch (kind)
+            {
+                case "text_delta":
+                    if (!string.IsNullOrEmpty(text)) JcodeResult += text;
+                    break;
+                case "text_replace":
+                    JcodeResult = text ?? string.Empty;
+                    break;
+                case "tool_call":
+                    var tool = item["tool_name"]?.GetValue<string>() ?? "workspace tool";
+                    JcodeStatusMessage = $"JCode is using the Citadel-audited read-only {tool} tool...";
+                    break;
+                case "error":
+                    JcodeStatusMessage = text ?? "JCode reported a runtime error.";
+                    break;
+            }
+        }
     }
 
     [RelayCommand]

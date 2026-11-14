@@ -21,6 +21,14 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - name: Test backend
         run: cargo test --manifest-path backend-rust/Cargo.toml
+      - name: Export resolved backend Cargo.lock
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-cargo-lock
+          path: backend-rust/Cargo.lock
+          if-no-files-found: error
+          retention-days: 1
 
   orchestral-core:
     name: Orchestral Citadel core
@@ -43,6 +51,8 @@ jobs:
         run: python -m pip install -e ./orchestral-runtime/worker
       - name: Check Python syntax
         run: python -m compileall -q orchestral-runtime/worker/orchestral_worker
+      - name: Check JCode benchmark harness syntax
+        run: python -m py_compile benchmarks/benchmark_jcode_runtime.py
       - name: Run guard unit tests
         run: |
           python -m unittest discover -s orchestral-runtime/tests -p "test_unit_guards.py" -v
@@ -135,6 +145,7 @@ jobs:
           test "$ready" = true
 
           curl --fail-with-body --silent --show-error http://127.0.0.1:3001/api/v1/orchestral/status             | python -c 'import json,sys; d=json.load(sys.stdin); assert d["core_healthy"], d; assert d["worker_healthy"], d'
+          curl --fail-with-body --silent --show-error http://127.0.0.1:3001/api/v1/jcode/health             | python -c 'import json,sys; d=json.load(sys.stdin); assert not d["enabled"], d; assert not d["connected"], d'
 
           job_json=$(curl --fail-with-body --silent --show-error -X POST http://127.0.0.1:3001/api/v1/orchestral/jobs/local-analysis             -H "Content-Type: application/json" -d '{"workspace":"backend-rust"}')
           job_id=$(printf '%s' "$job_json" | python -c 'import json,sys; print(json.load(sys.stdin)["job_id"])')
@@ -165,6 +176,8 @@ jobs:
           echo "$approve_json"
           printf '%s' "$approve_json" | python -c 'import json,sys; assert json.load(sys.stdin)["status"] == "approved"'
 
+          curl --fail-with-body --silent --show-error -X POST http://127.0.0.1:8088/api/v1/audit/events             -H "X-Orchestral-API-Key: $ORCHESTRAL_ADMIN_KEY"             -H "Content-Type: application/json"             -d '{"actor":"ci-jcode-test","action":"jcode_tool_requested","details":"read-only tool audit integration test"}'
+          curl --fail-with-body --silent --show-error "http://127.0.0.1:8088/api/v1/audit/logs?limit=20"             -H "X-Orchestral-API-Key: $ORCHESTRAL_ADMIN_KEY"             | python -c 'import json,sys; logs=json.load(sys.stdin); assert any(x["action"] == "jcode_tool_requested" and x["actor"] == "ci-jcode-test" for x in logs), logs'
           curl --fail-with-body --silent --show-error http://127.0.0.1:3001/api/v1/orchestral/audit?limit=20             | python -c 'import json,sys; assert isinstance(json.load(sys.stdin), list)'
 
           kill -INT "$BACKEND_PID"

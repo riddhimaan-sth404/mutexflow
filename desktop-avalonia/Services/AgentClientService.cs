@@ -33,15 +33,18 @@ public interface IAgentClientService
     Task<(bool Ok, string? Error)> CancelLocalAnalysisAsync(string jobId, CancellationToken ct = default);
     Task<JsonObject?> GetJcodeStatusAsync(CancellationToken ct = default);
     Task<List<string>> GetJcodeSessionsAsync(CancellationToken ct = default);
-    Task<(bool Ok, string? SessionId, string? Error)> CreateJcodeSessionAsync(string workspace, CancellationToken ct = default);
+    Task<(bool Ok, string? SessionId, string? Error)> CreateJcodeSessionAsync(string workspace, string role, string objective, CancellationToken ct = default);
+    Task<List<JsonObject>> GetJcodeEventsAsync(long afterSequence, CancellationToken ct = default);
     Task<(bool Ok, string? Result, string? Error)> RunJcodeSessionAsync(string sessionId, string prompt, CancellationToken ct = default);
     Task<(bool Ok, string? Error)> CancelJcodeSessionAsync(string sessionId, CancellationToken ct = default);
-    Task<(bool Ok, string? Result, string? Error)> RunJcodeBatchAsync(string workspace, List<string> tasks, CancellationToken ct = default);
+    Task<(bool Ok, JsonObject? Batch, string? Error)> StartJcodeBatchAsync(string workspace, List<string> tasks, CancellationToken ct = default);
+    Task<JsonObject?> GetJcodeBatchAsync(string batchId, CancellationToken ct = default);
+    Task<(bool Ok, string? Error)> CancelJcodeBatchAsync(string batchId, CancellationToken ct = default);
 }
 
 public class AgentClientService : IAgentClientService
 {
-    private readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(90) };
+    private readonly HttpClient _http = new() { Timeout = TimeSpan.FromMinutes(10) };
     private readonly ISecureStorageService _storage;
 
     public string BackendUrl { get; set; } = "http://localhost:3001";
@@ -429,18 +432,35 @@ public class AgentClientService : IAgentClientService
     }
 
     public async Task<(bool Ok, string? SessionId, string? Error)> CreateJcodeSessionAsync(
-        string workspace, CancellationToken ct = default)
+        string workspace, string role, string objective, CancellationToken ct = default)
     {
         try
         {
             using var response = await _http.PostAsJsonAsync(
-                $"{BackendUrl}/api/v1/jcode/sessions", new { workspace }, ct);
+                $"{BackendUrl}/api/v1/jcode/sessions", new { workspace, role, objective }, ct);
             var body = await response.Content.ReadFromJsonAsync<JsonObject>(cancellationToken: ct);
             if (response.IsSuccessStatusCode)
                 return (true, body?["session_id"]?.GetValue<string>(), null);
             return (false, null, body?["error"]?.GetValue<string>() ?? $"HTTP {response.StatusCode}");
         }
         catch (Exception ex) { return (false, null, ex.Message); }
+    }
+
+    public async Task<List<JsonObject>> GetJcodeEventsAsync(long afterSequence, CancellationToken ct = default)
+    {
+        try
+        {
+            using var response = await _http.GetAsync(
+                $"{BackendUrl}/api/v1/jcode/events?after={afterSequence}", ct);
+            if (!response.IsSuccessStatusCode) return new List<JsonObject>();
+            var body = await response.Content.ReadFromJsonAsync<JsonObject>(cancellationToken: ct);
+            return body?["events"]?.AsArray()
+                .Select(item => item?.AsObject())
+                .Where(item => item is not null)
+                .Select(item => item!)
+                .ToList() ?? new List<JsonObject>();
+        }
+        catch { return new List<JsonObject>(); }
     }
 
     public async Task<(bool Ok, string? Result, string? Error)> RunJcodeSessionAsync(
@@ -475,7 +495,7 @@ public class AgentClientService : IAgentClientService
     }
 
 
-    public async Task<(bool Ok, string? Result, string? Error)> RunJcodeBatchAsync(
+    public async Task<(bool Ok, JsonObject? Batch, string? Error)> StartJcodeBatchAsync(
         string workspace, List<string> tasks, CancellationToken ct = default)
     {
         try
@@ -484,10 +504,35 @@ public class AgentClientService : IAgentClientService
                 $"{BackendUrl}/api/v1/jcode/swarm", new { workspace, tasks }, ct);
             var body = await response.Content.ReadFromJsonAsync<JsonObject>(cancellationToken: ct);
             if (response.IsSuccessStatusCode)
-                return (true, body?.ToJsonString() ?? string.Empty, null);
+                return (true, body, null);
             return (false, null, body?["error"]?.GetValue<string>() ?? $"HTTP {response.StatusCode}");
         }
         catch (Exception ex) { return (false, null, ex.Message); }
+    }
+
+    public async Task<JsonObject?> GetJcodeBatchAsync(string batchId, CancellationToken ct = default)
+    {
+        try
+        {
+            using var response = await _http.GetAsync(
+                $"{BackendUrl}/api/v1/jcode/swarm/{Uri.EscapeDataString(batchId)}", ct);
+            if (!response.IsSuccessStatusCode) return null;
+            return await response.Content.ReadFromJsonAsync<JsonObject>(cancellationToken: ct);
+        }
+        catch { return null; }
+    }
+
+    public async Task<(bool Ok, string? Error)> CancelJcodeBatchAsync(string batchId, CancellationToken ct = default)
+    {
+        try
+        {
+            using var response = await _http.PostAsync(
+                $"{BackendUrl}/api/v1/jcode/swarm/{Uri.EscapeDataString(batchId)}/cancel", content: null, ct);
+            if (response.IsSuccessStatusCode) return (true, null);
+            var error = await response.Content.ReadAsStringAsync(ct);
+            return (false, string.IsNullOrWhiteSpace(error) ? $"HTTP {response.StatusCode}" : error);
+        }
+        catch (Exception ex) { return (false, ex.Message); }
     }
 
 }

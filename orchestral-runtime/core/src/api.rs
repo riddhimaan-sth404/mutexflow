@@ -84,6 +84,13 @@ pub struct AuditQuery {
 }
 
 #[derive(Deserialize)]
+pub struct CreateAuditEventRequest {
+    pub actor: String,
+    pub action: String,
+    pub details: String,
+}
+
+#[derive(Deserialize)]
 pub struct WsAuthQuery {
     pub api_key: Option<String>,
 }
@@ -113,6 +120,7 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/v1/blackboard/summary", get(get_blackboard_summary_handler))
         // Audit Trail
         .route("/api/v1/audit/logs", get(list_audit_logs_handler))
+        .route("/api/v1/audit/events", post(create_audit_event_handler))
         // Streaming Telemetry (WebSocket & SSE for OpenCode TUI)
         .route("/api/v1/events/ws", get(ws_handler))
         .route("/api/v1/events/sse", get(sse_handler))
@@ -669,6 +677,26 @@ async fn get_blackboard_summary_handler(
 }
 
 // --- Audit Log Handler ---
+async fn create_audit_event_handler(
+    State(state): State<AppState>,
+    parts: Parts,
+    Json(payload): Json<CreateAuditEventRequest>,
+) -> Result<impl IntoResponse, AuthError> {
+    check_auth(&parts, &state, "admin").await?;
+    if payload.actor.trim().is_empty() || payload.actor.len() > 128
+        || payload.action.trim().is_empty() || payload.action.len() > 128
+        || payload.details.len() > 4096
+    {
+        return Err(AuthError::InsufficientPermissions(
+            "audit actor/action must be non-empty and details must not exceed 4096 bytes".to_string(),
+        ));
+    }
+    state.record_audit(&payload.actor, &payload.action, &payload.details)
+        .await
+        .map_err(AuthError::Internal)?;
+    Ok(StatusCode::CREATED)
+}
+
 async fn list_audit_logs_handler(
     State(state): State<AppState>,
     Query(query): Query<AuditQuery>,

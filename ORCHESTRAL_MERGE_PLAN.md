@@ -82,7 +82,7 @@ The initial integration keeps Citadel as a loopback-only sidecar to preserve beh
 - Added a managed-runtime end-to-end test that starts backend-managed Citadel and worker processes, runs a local analysis job, reads agent/finding state, exercises both approval and denial through the backend, and retrieves audit events.
 - The managed-runtime end-to-end test also sends Ctrl+C to the backend and verifies both sidecar health ports close.
 - Remaining validation includes crash/restart behavior, audit-chain verification/key rotation, and broader lifecycle/security tests.
-- General-purpose autonomous agent spawning, arbitrary tool dispatch, event streaming UI, and autonomous-agent cancellation remain out of scope until the API contract and sandbox model are completed.
+- General-purpose arbitrary tool dispatch remains out of scope. The JCode integration in Phase 8 now supplies scoped independent agent sessions, live output events, bounded concurrent batches, and cancellation; it does not enable shell, write, network, MCP, or active scanning tools.
 
 ### Phase 7 — Compatibility and rollout
 - Keep standalone Orchestral packaging available while the new MutexFlow adapter matures.
@@ -112,10 +112,14 @@ The initial integration keeps Citadel as a loopback-only sidecar to preserve beh
 Update completion status only after corresponding code and tests are verified.
 
 
-## Phase 8 — JCode runtime evaluation and integration
+## Phase 8 — JCode runtime integration (implementation complete; performance target unverified)
 
-- Identified upstream JCode as `1jehuang/jcode`, a Rust coding-agent harness with a versioned Harness API and Rust SDK.
-- Verified the upstream MIT license and pinned the inspected compatibility snapshot at `72f9c07ff59639221b9f371b759f784416bd1d12`.
-- Added `JCODE_INTEGRATION.md` defining the responsibility split, isolated-instance requirements, credential isolation, local IPC boundary, tool mediation, and performance/release gates.
-- Added `.github/workflows/jcode-compatibility.yml` to test the pinned upstream SDK, Harness API, and API bridge on Linux and Windows.
-- This is the upstream contract/compatibility baseline only. The JCode runtime manager, Orchestral policy-mediated tool bridge, Avalonia controls, and measured performance comparison remain outstanding. Do not mark this phase complete until those implementations and tests exist.
+- Pinned the upstream MIT-licensed JCode SDK/runtime snapshot at `72f9c07ff59639221b9f371b759f784416bd1d12`.
+- Added a managed Rust runtime with a dedicated JCode home, clean child environment, loopback-only startup, provider selection, SDK-based owner-only credential provisioning, health checks, and restart-on-next-use after runtime failure.
+- Added Citadel-backed agent registration/status updates and chained audit records for every custom tool request/result. Tool execution fails closed when Citadel audit is unavailable.
+- Added four fixed specialist roles and up to eight concurrent independent JCode sessions.
+- Added bounded live event delivery, session listing, cancellation, usage/latency reporting, and Avalonia controls for role selection, objectives, streaming output, and batch launches.
+- Exposed only confined read-only workspace read/list/search tools. Built-in shell, write, network, MCP, active scanning, and terminal tools remain disabled.
+- Added an audit-event write endpoint to Citadel and updated the integration/validation documentation.
+- Added JCode compatibility CI on Linux and Windows, plus a Linux pinned-binary build and isolated runtime lifecycle smoke test.
+- No 12x speedup is claimed until a reproducible same-hardware/provider benchmark produces raw measurements. Native JCode swarm UI and the original Orchestral active security tool suite are not represented as integrated.

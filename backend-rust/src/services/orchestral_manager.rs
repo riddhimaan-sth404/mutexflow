@@ -265,6 +265,25 @@ impl OrchestralManager {
         Ok(body)
     }
 
+    pub async fn core_post_json(&self, path: &str, payload: &Value) -> Result<Value, String> {
+        let response = self.core_request(reqwest::Method::POST, path).json(payload).send().await
+            .map_err(|e| format!("Orchestral Citadel request failed: {e}"))?;
+        let status = response.status();
+        let body = response.json::<Value>().await.unwrap_or_else(|_| json!({}));
+        if !status.is_success() {
+            return Err(format!("Orchestral POST {} returned HTTP {}: {}", path, status, body.get("error").and_then(Value::as_str).unwrap_or("request rejected")));
+        }
+        Ok(body)
+    }
+
+    pub async fn record_audit(&self, actor: &str, action: &str, details: &str) -> Result<(), String> {
+        self.core_post_json("/api/v1/audit/events", &json!({
+            "actor": actor,
+            "action": action,
+            "details": details
+        })).await.map(|_| ())
+    }
+
     pub async fn core_post_empty(&self, path: &str) -> Result<Value, String> {
         let response = self.core_request(reqwest::Method::POST, path).send().await
             .map_err(|e| format!("Orchestral Citadel request failed: {e}"))?;
