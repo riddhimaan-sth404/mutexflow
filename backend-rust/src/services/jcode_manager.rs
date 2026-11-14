@@ -458,6 +458,7 @@ impl JcodeManager {
             .map_err(|_| "JCode concurrency gate is closed".to_string())?;
         let runtime = self.client()?;
         let session_id = session_id.to_string();
+        let allowed_root = self.root.clone();
         self.update_agent_status(&session_id, "thinking", 0).await;
         let prompt = prompt.to_string();
         let status_session_id = session_id.clone();
@@ -475,6 +476,11 @@ impl JcodeManager {
             let workspace = session.working_dir.map(PathBuf::from)
                 .ok_or_else(|| "JCode session has no workspace directory".to_string())?
                 .canonicalize().map_err(|e| format!("resolve JCode session workspace: {e}"))?;
+            let allowed_root = allowed_root.canonicalize()
+                .map_err(|e| format!("resolve MutexFlow workspace root: {e}"))?;
+            if !workspace.starts_with(&allowed_root) {
+                return Err("JCode session workspace is outside the assigned MutexFlow root".into());
+            }
             let root = workspace.clone();
             let tools = if citadel_ready {
                 readonly_tool_configuration()
