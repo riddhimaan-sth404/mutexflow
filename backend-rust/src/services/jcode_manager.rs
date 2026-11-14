@@ -780,7 +780,7 @@ fn runtime_is_alive(runtime: &JcodeRuntime) -> bool {
     let process_alive = runtime.child.lock()
         .map(|mut child| child.try_wait().map(|status| status.is_none()).unwrap_or(false))
         .unwrap_or(false);
-    process_alive && runtime.client.ping().unwrap_or(false)
+    process_alive && runtime.client.ping().is_ok()
 }
 
 fn stop_registered_daemon(home: &Path) {
