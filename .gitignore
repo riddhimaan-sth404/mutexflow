@@ -23,3 +23,16 @@ obj/
 .DS_Store
 Thumbs.db
 [Tt]emp/
+
+# Orchestral runtime state and generated data
+.mutexflow/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+
+# Python worker
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/

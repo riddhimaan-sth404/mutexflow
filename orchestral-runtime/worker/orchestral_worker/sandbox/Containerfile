@@ -1,0 +1,24 @@
+# Orchestral Exclusive Agent Kali Environment (Tartarus)
+FROM docker.io/kalilinux/kali-rolling:latest
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install essential terminal tools for security research
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    nmap \
+    john \
+    curl \
+    wget \
+    dnsutils \
+    whois \
+    ca-certificates \
+    netcat-traditional \
+    python3 \
+    python3-pip \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# Workdir isolated for agent operations
+WORKDIR /workspace
+
+CMD ["sleep", "infinity"]

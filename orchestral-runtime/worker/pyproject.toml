@@ -1,0 +1,32 @@
+[project]
+name = "orchestral-worker"
+version = "0.2.0"
+description = "Orchestral Python security agent runtime, guardrails, tools, and MCP server"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Apache-2.0" }
+dependencies = [
+    "rich>=13.7.0",
+    "PyYAML>=6.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+]
+
+[project.scripts]
+orchestral-worker = "orchestral_worker.main:main"
+orchestral-mcp = "orchestral_worker.mcp.server:main"
+orchestral-monitor = "orchestral_worker.tui:main"
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["orchestral_worker*"]
+
+[tool.setuptools.package-data]
+orchestral_worker = ["py.typed"]

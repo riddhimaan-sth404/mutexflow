@@ -30,8 +30,9 @@ public partial class App : Application
             var localAiVm = new LocalAiViewModel(_llamaService);
             var agentVm = new AgentViewModel(agentClient, fingerprint, storage, _llamaService, integrationsVm, localAiVm);
             var settingsVm = new SettingsViewModel(agentClient, storage, fingerprint);
+            var orchestralVm = new OrchestralViewModel(agentClient);
 
-            var mainVm = new MainWindowViewModel(agentVm, integrationsVm, localAiVm, settingsVm);
+            var mainVm = new MainWindowViewModel(agentVm, integrationsVm, localAiVm, settingsVm, orchestralVm);
 
             desktop.MainWindow = new MainWindow
             {

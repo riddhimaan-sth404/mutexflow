@@ -9,6 +9,7 @@ public partial class MainWindowViewModel : ViewModelBase
     public IntegrationsViewModel IntegrationsVm { get; }
     public LocalAiViewModel LocalAiVm { get; }
     public SettingsViewModel SettingsVm { get; }
+    public OrchestralViewModel OrchestralVm { get; }
 
     [ObservableProperty]
     private ViewModelBase _currentView;
@@ -20,12 +21,14 @@ public partial class MainWindowViewModel : ViewModelBase
         AgentViewModel agentVm,
         IntegrationsViewModel integrationsVm,
         LocalAiViewModel localAiVm,
-        SettingsViewModel settingsVm)
+        SettingsViewModel settingsVm,
+        OrchestralViewModel orchestralVm)
     {
         AgentVm = agentVm;
         IntegrationsVm = integrationsVm;
         LocalAiVm = localAiVm;
         SettingsVm = settingsVm;
+        OrchestralVm = orchestralVm;
 
         _currentView = AgentVm;
     }
@@ -39,6 +42,7 @@ public partial class MainWindowViewModel : ViewModelBase
             "integrations" => IntegrationsVm,
             "local-ai" => LocalAiVm,
             "settings" => SettingsVm,
+            "orchestral" => OrchestralVm,
             _ => AgentVm
         };
     }

@@ -1,0 +1,153 @@
+name: JCode upstream compatibility
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/jcode-compatibility.yml"
+      - "JCODE_INTEGRATION.md"
+      - "benchmarks/**"
+      - "backend-rust/**"
+      - "orchestral-runtime/**"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  JCODE_UPSTREAM_SHA: 72f9c07ff59639221b9f371b759f784416bd1d12
+  # Upstream's optional wrapper is a POSIX script; disable it for native CI shells.
+  CARGO_BUILD_RUSTC_WRAPPER: ""
+
+jobs:
+  linux-sdk-contract:
+    name: JCode SDK and Harness API (Linux)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout MutexFlow
+        uses: actions/checkout@v4
+      - name: Checkout pinned JCode source
+        uses: actions/checkout@v4
+        with:
+          repository: 1jehuang/jcode
+          ref: ${{ env.JCODE_UPSTREAM_SHA }}
+          path: jcode-upstream
+      - name: Install stable Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Test versioned API and SDK
+        working-directory: jcode-upstream
+        run: cargo check --locked -p jcode-harness-api -p jcode-harness-api-server -p jcode-sdk && cargo test --locked -p jcode-sdk -- --skip auth::tests::processes::browser_callback_rejects_unrelated_requests_then_completes_over_stdin --skip auth::tests::processes::callback_wait_is_interrupted_by_cancel_and_manual_completion
+
+  isolated-runtime-smoke:
+    name: Isolated JCode runtime smoke (Linux)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout MutexFlow
+        uses: actions/checkout@v4
+      - name: Checkout pinned JCode source
+        uses: actions/checkout@v4
+        with:
+          repository: 1jehuang/jcode
+          ref: ${{ env.JCODE_UPSTREAM_SHA }}
+          path: jcode-upstream
+      - name: Install stable Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Build headless JCode runtime
+        working-directory: jcode-upstream
+        run: cargo build --locked --release --no-default-features --bin jcode
+      - name: Exercise isolated backend lifecycle
+        env:
+          JCODE_RUNTIME_SMOKE: "1"
+          JCODE_AUTOSTART: "true"
+          JCODE_BINARY: ${{ github.workspace }}/jcode-upstream/target/release/jcode
+        run: cargo test --locked --manifest-path backend-rust/Cargo.toml --test jcode_runtime_smoke -- --nocapture
+
+  windows-isolated-runtime-smoke:
+    name: Isolated JCode runtime smoke (Windows)
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout MutexFlow
+        uses: actions/checkout@v4
+      - name: Checkout pinned JCode source
+        uses: actions/checkout@v4
+        with:
+          repository: 1jehuang/jcode
+          ref: ${{ env.JCODE_UPSTREAM_SHA }}
+          path: jcode-upstream
+      - name: Install stable Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Build headless JCode runtime
+        working-directory: jcode-upstream
+        run: cargo build --locked --no-default-features --bin jcode
+      - name: Build Windows Harness API bridge
+        working-directory: jcode-upstream
+        run: cargo build --locked -p jcode-harness-api-server --bin jcode-harness-api-bridge
+      - name: Exercise isolated backend lifecycle
+        env:
+          JCODE_RUNTIME_SMOKE: "1"
+          JCODE_AUTOSTART: "true"
+          JCODE_BINARY: ${{ github.workspace }}\\jcode-upstream\\target\\debug\\jcode.exe
+          JCODE_API_BRIDGE_BINARY: ${{ github.workspace }}\\jcode-upstream\\target\\debug\\jcode-harness-api-bridge.exe
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Continue'
+          cargo test --locked --manifest-path backend-rust/Cargo.toml --test jcode_runtime_smoke -- --nocapture 2>&1 | Tee-Object -FilePath smoke-log.txt
+          exit $LASTEXITCODE
+      - name: Publish smoke diagnostics to job summary
+        if: always()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $summary = $env:GITHUB_STEP_SUMMARY
+          Add-Content -Path $summary -Value '## Isolated JCode runtime smoke (Windows) diagnostics'
+          if (Test-Path smoke-log.txt) {
+            Add-Content -Path $summary -Value '### cargo test output (last 400 lines)'
+            Get-Content smoke-log.txt | Select-Object -Last 400 | ForEach-Object { Add-Content -Path $summary -Value $_ }
+          } else {
+            Add-Content -Path $summary -Value 'cargo test produced no captured output.'
+          }
+          $jcodeLogs = Join-Path (Get-Location) '.mutexflow/jcode/logs'
+          if (Test-Path $jcodeLogs) {
+            Add-Content -Path $summary -Value '### jcode sidecar logs'
+            Get-ChildItem $jcodeLogs | ForEach-Object {
+              Add-Content -Path $summary -Value ('#### ' + $_.Name)
+              Get-Content $_.FullName -ErrorAction SilentlyContinue | Select-Object -Last 200 | ForEach-Object { Add-Content -Path $summary -Value $_ }
+            }
+          } else {
+            Add-Content -Path $summary -Value ('no jcode sidecar logs at ' + $jcodeLogs)
+          }
+          $servers = Join-Path (Get-Location) '.mutexflow/jcode/servers.json'
+          if (Test-Path $servers) {
+            Add-Content -Path $summary -Value '### servers.json'
+            Add-Content -Path $summary -Value (Get-Content $servers -Raw)
+          } else {
+            Add-Content -Path $summary -Value ('no servers.json at ' + $servers)
+          }
+
+  windows-sdk-contract:
+    name: JCode SDK and Harness API (Windows)
+    runs-on: windows-latest
+    steps:
+      - name: Checkout MutexFlow
+        uses: actions/checkout@v4
+      - name: Checkout pinned JCode source
+        uses: actions/checkout@v4
+        with:
+          repository: 1jehuang/jcode
+          ref: ${{ env.JCODE_UPSTREAM_SHA }}
+          path: jcode-upstream
+      - name: Install stable Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Test versioned API and SDK
+        working-directory: jcode-upstream
+        env:
+          TEMP: ${{ runner.temp }}
+          TMP: ${{ runner.temp }}
+          TMPDIR: ${{ runner.temp }}
+        run: cargo check --locked -p jcode-harness-api -p jcode-harness-api-server -p jcode-sdk && cargo test --locked -p jcode-sdk -- --skip worktrees::tests::lists_existing_detached_locked_prunable_and_bare_worktrees --skip worktrees::tests::creation_isolates_dirty_edits_and_nested_invocation --skip worktrees::tests::rejects_invalid_branches_collisions_and_non_repositories --skip auth::tests::processes::browser_callback_rejects_unrelated_requests_then_completes_over_stdin

@@ -1,0 +1,210 @@
+name: MutexFlow + Orchestral integration checks
+
+on:
+  pull_request:
+    branches:
+      - main
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  mutexflow-backend:
+    name: MutexFlow Rust backend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Test backend
+        run: cargo test --locked --manifest-path backend-rust/Cargo.toml
+      - name: Export resolved backend Cargo.lock
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-cargo-lock
+          path: backend-rust/Cargo.lock
+          if-no-files-found: error
+          retention-days: 1
+
+  orchestral-core:
+    name: Orchestral Citadel core
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Test Citadel
+        run: cargo test --manifest-path orchestral-runtime/core/Cargo.toml
+
+  orchestral-worker:
+    name: Orchestral Python worker
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install worker
+        run: python -m pip install -e ./orchestral-runtime/worker
+      - name: Check Python syntax
+        run: python -m compileall -q orchestral-runtime/worker/orchestral_worker
+      - name: Check JCode benchmark harness syntax
+        run: python -m py_compile benchmarks/benchmark_jcode_runtime.py
+      - name: Run guard unit tests
+        run: |
+          python -m unittest discover -s orchestral-runtime/tests -p "test_unit_guards.py" -v
+          python -m unittest discover -s orchestral-runtime/tests -p "test_mutexflow_worker_service.py" -v
+
+  mutexflow-desktop:
+    name: MutexFlow Avalonia desktop
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "9.0.x"
+      - name: Build desktop
+        run: dotnet build desktop-avalonia/MutexFlow.Desktop.csproj --configuration Release
+
+  windows-smoke:
+    name: Windows integration smoke test
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "9.0.x"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Test MutexFlow backend
+        run: cargo test --locked --manifest-path backend-rust/Cargo.toml
+      - name: Test Orchestral Citadel
+        run: cargo test --manifest-path orchestral-runtime/core/Cargo.toml
+      - name: Build Avalonia desktop
+        run: dotnet build desktop-avalonia/MutexFlow.Desktop.csproj --configuration Release
+      - name: Install Python worker
+        run: python -m pip install -e ./orchestral-runtime/worker
+      - name: Test Python worker boundaries
+        shell: pwsh
+        run: |
+          python -m unittest discover -s orchestral-runtime/tests -p "test_unit_guards.py" -v
+          python -m unittest discover -s orchestral-runtime/tests -p "test_mutexflow_worker_service.py" -v
+
+  managed-runtime-e2e:
+    name: Managed Orchestral runtime end-to-end
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install Orchestral worker package
+        run: python -m pip install --editable orchestral-runtime/worker
+      - name: Build MutexFlow backend
+        run: cargo build --locked --manifest-path backend-rust/Cargo.toml
+      - name: Start managed runtime and exercise backend APIs
+        shell: bash
+        run: |
+          set -euo pipefail
+          export ORCHESTRAL_ADMIN_KEY="orch_live_ci_test_key_7f31d4e8a5c2"
+          export ORCHESTRAL_JWT_SECRET="ci-only-jwt-secret-not-for-production-000000000000000000000000"
+          export ORCHESTRAL_AUTOSTART=true
+          export ORCHESTRAL_CORE_URL="http://127.0.0.1:8088"
+          export ORCHESTRAL_WORKER_URL="http://127.0.0.1:8090"
+          export PYTHON=python3
+          export BIND_ADDR=127.0.0.1
+          export PORT=3001
+          export MUTEXFLOW_API_TOKEN="ci-local-api-token-0123456789abcdef"
+          export MUTEXFLOW_WORKER_TOKEN="ci-worker-token-0123456789abcdef"
+
+          ./backend-rust/target/debug/backend-rust > "$RUNNER_TEMP/mutexflow-backend.log" 2>&1 &
+          BACKEND_PID=$!
+          cleanup() {
+            result=$?
+            if [ -n "${BACKEND_PID:-}" ]; then
+              kill -INT "$BACKEND_PID" 2>/dev/null || true
+              wait "$BACKEND_PID" 2>/dev/null || true
+            fi
+            if [ "$result" -ne 0 ]; then
+              echo "===== MutexFlow backend log ====="
+              cat "$RUNNER_TEMP/mutexflow-backend.log" || true
+            fi
+          }
+          trap cleanup EXIT
+
+          ready=false
+          for _ in $(seq 1 240); do
+            if curl --fail-with-body --silent --show-error http://127.0.0.1:3001/health >/dev/null; then
+              ready=true
+              break
+            fi
+            sleep 1
+          done
+          test "$ready" = true
+
+          # The orchestral/JCode routers must reject unauthenticated callers.
+          unauth_status=$(curl --silent --show-error -o /dev/null -w '%{http_code}' http://127.0.0.1:3001/api/v1/orchestral/status)
+          test "$unauth_status" = "401"
+          unauth_jcode=$(curl --silent --show-error -o /dev/null -w '%{http_code}' http://127.0.0.1:3001/api/v1/jcode/health)
+          test "$unauth_jcode" = "401"
+
+          orchestral_ready=false
+          for _ in $(seq 1 1200); do
+            orchestral_status=$(curl --silent --show-error -H "X-MutexFlow-Token: $MUTEXFLOW_API_TOKEN" http://127.0.0.1:3001/api/v1/orchestral/status 2>/dev/null || true)
+            if printf '%s' "$orchestral_status" | python -c 'import json,sys; d=json.load(sys.stdin); sys.exit(0 if d.get("core_healthy") and d.get("worker_healthy") else 1)' 2>/dev/null; then
+              orchestral_ready=true
+              break
+            fi
+            sleep 1
+          done
+          test "$orchestral_ready" = true
+          curl --fail-with-body --silent --show-error -H "X-MutexFlow-Token: $MUTEXFLOW_API_TOKEN" http://127.0.0.1:3001/api/v1/jcode/health             | python -c 'import json,sys; d=json.load(sys.stdin); assert not d["enabled"], d; assert not d["connected"], d'
+
+          job_json=$(curl --fail-with-body --silent --show-error -X POST -H "X-MutexFlow-Token: $MUTEXFLOW_API_TOKEN" http://127.0.0.1:3001/api/v1/orchestral/jobs/local-analysis             -H "Content-Type: application/json" -d '{"workspace":"backend-rust"}')
+          job_id=$(printf '%s' "$job_json" | python -c 'import json,sys; print(json.load(sys.stdin)["job_id"])')
+          for _ in $(seq 1 90); do
+            job_json=$(curl --fail-with-body --silent --show-error -H "X-MutexFlow-Token: $MUTEXFLOW_API_TOKEN" "http://127.0.0.1:3001/api/v1/orchestral/jobs/$job_id")
+            job_status=$(printf '%s' "$job_json" | python -c 'import json,sys; print(json.load(sys.stdin)["status"])')
+            if [ "$job_status" = "completed" ]; then break; fi
+            if [ "$job_status" = "failed" ] || [ "$job_status" = "cancelled" ]; then
+              echo "$job_json"
+              exit 1
+            fi
+            sleep 1
+          done
+          test "$job_status" = "completed"
+
+          curl --fail-with-body --silent --show-error -H "X-MutexFlow-Token: $MUTEXFLOW_API_TOKEN" http://127.0.0.1:3001/api/v1/orchestral/agents             | python -c 'import json,sys; assert isinstance(json.load(sys.stdin), list)'
+          curl --fail-with-body --silent --show-error -H "X-MutexFlow-Token: $MUTEXFLOW_API_TOKEN" http://127.0.0.1:3001/api/v1/orchestral/findings             | python -c 'import json,sys; assert isinstance(json.load(sys.stdin), list)'
+
+          hitl_json=$(curl --fail-with-body --silent --show-error -X POST http://127.0.0.1:8088/api/v1/hitl/pending             -H "X-Orchestral-API-Key: $ORCHESTRAL_ADMIN_KEY"             -H "Content-Type: application/json"             -d '{"agent_id":"ci-approval-agent","tool_name":"manual-review","target":"local-workspace","command_preview":"CI approval-gate verification","risk_tier":"active"}')
+          approval_id=$(printf '%s' "$hitl_json" | python -c 'import json,sys; print(json.load(sys.stdin)["id"])')
+          deny_json=$(curl --silent --show-error -H "X-MutexFlow-Token: $MUTEXFLOW_API_TOKEN" "http://127.0.0.1:3001/api/v1/orchestral/approvals/$approval_id/deny" -X POST)
+          echo "$deny_json"
+          printf '%s' "$deny_json" | python -c 'import json,sys; assert json.load(sys.stdin)["status"] == "denied"'
+
+          approve_hitl_json=$(curl --fail-with-body --silent --show-error -X POST http://127.0.0.1:8088/api/v1/hitl/pending             -H "X-Orchestral-API-Key: $ORCHESTRAL_ADMIN_KEY"             -H "Content-Type: application/json"             -d '{"agent_id":"ci-approval-agent-2","tool_name":"manual-review","target":"local-workspace","command_preview":"CI approval-path verification","risk_tier":"active"}')
+          approve_id=$(printf '%s' "$approve_hitl_json" | python -c 'import json,sys; print(json.load(sys.stdin)["id"])')
+          approve_json=$(curl --silent --show-error -H "X-MutexFlow-Token: $MUTEXFLOW_API_TOKEN" "http://127.0.0.1:3001/api/v1/orchestral/approvals/$approve_id/approve" -X POST)
+          echo "$approve_json"
+          printf '%s' "$approve_json" | python -c 'import json,sys; assert json.load(sys.stdin)["status"] == "approved"'
+
+          curl --fail-with-body --silent --show-error -X POST http://127.0.0.1:8088/api/v1/audit/events             -H "X-Orchestral-API-Key: $ORCHESTRAL_ADMIN_KEY"             -H "Content-Type: application/json"             -d '{"actor":"ci-jcode-test","action":"jcode_tool_requested","details":"read-only tool audit integration test"}'
+          curl --fail-with-body --silent --show-error "http://127.0.0.1:8088/api/v1/audit/logs?limit=20"             -H "X-Orchestral-API-Key: $ORCHESTRAL_ADMIN_KEY"             | python -c 'import json,sys; logs=json.load(sys.stdin); assert any(x["action"] == "jcode_tool_requested" and x["actor"] == "ci-jcode-test" for x in logs), logs'
+          curl --fail-with-body --silent --show-error -H "X-MutexFlow-Token: $MUTEXFLOW_API_TOKEN" http://127.0.0.1:3001/api/v1/orchestral/audit?limit=20             | python -c 'import json,sys; assert isinstance(json.load(sys.stdin), list)'
+
+          kill -INT "$BACKEND_PID"
+          wait "$BACKEND_PID"
+          BACKEND_PID=""
+          for port in 8088 8090; do
+            if curl --fail --silent "http://127.0.0.1:$port/health" >/dev/null; then
+              echo "Orchestral child process on port $port survived backend shutdown"
+              exit 1
+            fi
+          done

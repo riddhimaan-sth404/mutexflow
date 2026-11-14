@@ -23,10 +23,11 @@ The desktop client also provides workflow presets, integration configuration, an
 | Desktop application | C#, .NET 9, Avalonia 11 | User interface, workflow selection, local model management, and integration settings |
 | Backend | Rust, Tokio, Axum | HTTP API, cloud-provider cascade, licensing checks, OAuth callbacks, and server-side integration dispatch |
 | Optional persistence | Supabase | License records and connected integration tokens |
-| Local inference | `llama-server` + GGUF | Runs a model on the user's machine |
+| Local inference | `llama-server` + GGUF | Runs a model on the user machine |
+| Agent runtime | JCode Rust Harness SDK | Runs isolated, concurrent Orchestral specialist sessions behind Citadel policy and audit mediation |
 | Cloud inference | OpenAI-compatible chat-completions APIs | Provider fallback for Standard mode |
 
-The desktop client communicates with the Rust backend over HTTP. Local inference is exposed through a llama.cpp-compatible endpoint at `http://localhost:8080`.
+The desktop client communicates with the Rust backend over HTTP. Local inference is exposed through a llama.cpp-compatible endpoint at `http://localhost:8080`. Optional JCode sessions are managed by the backend and surfaced through the existing Avalonia Orchestral dashboard.
 
 ## Current capabilities
 
@@ -144,6 +145,10 @@ At minimum, the backend uses port `3001` by default. Cloud Standard mode needs a
 
 Never commit `.env` files, API keys, OAuth secrets, or service-role credentials.
 
+#### Optional Orchestral + JCode agents
+
+To enable the managed Orchestral runtime, configure `ORCHESTRAL_ADMIN_KEY`, a stable `ORCHESTRAL_JWT_SECRET`, and `ORCHESTRAL_AUTOSTART=true`. Install a JCode executable built from the pinned upstream revision documented in [JCODE_INTEGRATION.md](JCODE_INTEGRATION.md), then set `JCODE_AUTOSTART=true` and `JCODE_BINARY` to its absolute path. Configure a provider key in the Avalonia Orchestral dashboard (stored by JCode in its owner-only credential store), or set one of `JCODE_OPENAI_API_KEY`, `JCODE_ANTHROPIC_API_KEY`, `JCODE_OPENROUTER_API_KEY`, or `JCODE_GEMINI_API_KEY` for unattended deployments; optionally set `JCODE_PROVIDER` and `JCODE_MODEL`. JCode remains disabled unless explicitly enabled and the backend binds to loopback. The `/api/v1/orchestral/*` and `/api/v1/jcode/*` routes additionally require a local API token: the backend generates one on first run, persists it owner-only at `.mutexflow/backend-token`, and clients send it as the `X-MutexFlow-Token` header (set `MUTEXFLOW_API_TOKEN` to supply your own). See [SECURITY.md](SECURITY.md). The Avalonia Orchestral dashboard exposes role-scoped sessions, live output, concurrent batches (up to eight agents), and cancellation. The agents are restricted to audited, read-only workspace tools.
+
 ### 3. Run the application on Windows
 
 The repository includes a Windows launcher:
@@ -202,6 +207,25 @@ The current Axum server exposes these routes:
 
 The default backend address is `http://localhost:3001`. The port can be changed with the `PORT` environment variable.
 
+### Orchestral and JCode runtime APIs
+
+When the managed runtime is configured, the backend also exposes:
+
+| Method | Route | Purpose |
+|---|---|---|
+| `GET` | `/api/v1/orchestral/health` | Citadel and worker health |
+| `GET` | `/api/v1/jcode/health` | JCode runtime and provider readiness |
+| `GET` | `/api/v1/jcode/sessions` | List JCode sessions |
+| `POST` | `/api/v1/jcode/sessions` | Create a Citadel-registered specialist agent |
+| `POST` | `/api/v1/jcode/sessions/{id}/run` | Run a turn in a selected agent session; optional `disable_tools: true` makes the turn tool-free |
+| `POST` | `/api/v1/jcode/sessions/{id}/cancel` | Cancel a selected agent session |
+| `POST` | `/api/v1/jcode/swarm` | Start a batch of up to eight concurrent agents |
+| `GET` | `/api/v1/jcode/swarm/{id}` | Read batch status and results |
+| `POST` | `/api/v1/jcode/swarm/{id}/cancel` | Cancel every session in a batch |
+| `GET` | `/api/v1/jcode/events?after={sequence}` | Read live JCode UI events |
+
+JCode sessions require a healthy Citadel instance and a configured provider. Their only exposed tools are audited, read-only workspace read/list/search operations. See [JCODE_INTEGRATION.md](JCODE_INTEGRATION.md) for the detailed security boundary and provider setup.
+
 ## Development
 
 ### Build and test the Rust backend
@@ -243,7 +267,8 @@ Use the exact variable names in `.env.example`; do not place secrets in source c
 
 MutexFlow is under development and should not be treated as production-hardened.
 
-- The current backend binds to `0.0.0.0` and configures permissive CORS. Do not expose it to an untrusted network without first restricting network access, origins, and authentication.
+- The backend binds to loopback by default (`BIND_ADDR=127.0.0.1`) and restricts browser CORS origins to loopback. Do not change the bind address or expose local control endpoints to an untrusted network without a separate authentication and threat-model review.
+- The `/api/v1/orchestral/*` and `/api/v1/jcode/*` routes require the `X-MutexFlow-Token` header (see [SECURITY.md](SECURITY.md)). The desktop client attaches it automatically from `MUTEXFLOW_API_TOKEN` or `.mutexflow/backend-token`. The vendored terminal, network-probing, and autonomous swarm modules are hard-disabled in the MutexFlow bundle; no environment variable can enable them.
 - Keep Supabase service-role keys, provider API keys, OAuth client secrets, and integration tokens private.
 - In the current desktop storage implementation, Windows secrets use DPAPI for the current user. The non-Windows fallback writes secret values as ordinary files; do not assume equivalent at-rest protection on Linux or macOS.
 - Review license verification and offline behavior before relying on licensing as an enforcement boundary.
@@ -278,3 +303,50 @@ A license file was not present in the repository root when this README was prepa
 ---
 
 **MutexFlow** — local inference when you want it, cloud fallback when you need it, and workflows that connect AI output to the tools you use.
+
+
+
+### Managed runtime setup
+
+The MutexFlow backend can manage the Orchestral Citadel and the restricted local-analysis worker as child processes. It can also manage the JCode Rust Harness as an isolated agent-session runtime. Runtime autostart is enabled only when a non-empty `ORCHESTRAL_ADMIN_KEY` is configured (and `ORCHESTRAL_AUTOSTART` is not disabled).
+
+1. Copy `backend-rust/.env.example` to `backend-rust/.env`.
+2. Generate a private random admin key locally (for example, with `openssl rand -hex 32`) and set it as `ORCHESTRAL_ADMIN_KEY`. Do not commit the real `.env` file.
+3. Set a stable, random `ORCHESTRAL_JWT_SECRET` for agent-token continuity across Citadel restarts.
+3. Optionally set `MUTEXFLOW_API_TOKEN` and `MUTEXFLOW_WORKER_TOKEN` yourself; otherwise the backend generates both from an OS PRNG and stores the API token owner-only at `.mutexflow/backend-token`. The worker token is a restricted credential that can only submit findings through the backend proxy; it never carries the Citadel admin key.
+4. Install Rust/Cargo and Python 3.10 or newer, then install the worker package and its runtime dependencies with `python -m pip install -e orchestral-runtime/worker`.
+5. Start MutexFlow with `run.bat` on Windows or launch the Rust backend from `backend-rust/` on other platforms.
+
+The backend binds to loopback by default (`BIND_ADDR=127.0.0.1`), starts Citadel on loopback port 8088 and the local worker on loopback port 8090, and restricts browser CORS origins to loopback. To enable JCode, set `JCODE_AUTOSTART=true` and `JCODE_BINARY` to the installed executable. Configure a provider key in the Avalonia Orchestral dashboard, or supply one of `JCODE_OPENAI_API_KEY`, `JCODE_ANTHROPIC_API_KEY`, `JCODE_OPENROUTER_API_KEY`, or `JCODE_GEMINI_API_KEY` for unattended deployments. JCode receives credentials only through its SDK and stores them in its owner-only credential store. See `JCODE_INTEGRATION.md` for the tool boundary, roles, and validation details. The reproducible comparison at `benchmarks/benchmark_jcode_runtime.py` measures the Python AgentRunner LLM call against the JCode managed turn using the same OpenAI model; benchmark requests are billable, and no fixed speedup is assumed. Remote binding requires an explicit `BIND_ADDR` override and should be protected by an authenticated reverse proxy/firewall. It shuts both down when the backend receives Ctrl+C. Set `ORCHESTRAL_CORE_BIN` to use a prebuilt Citadel executable instead of `cargo run`; set `PYTHON` to override the Python executable.
+
+### Orchestral dashboard and supported workflow
+
+The desktop's **Orchestral** section displays runtime health, registered agents, findings, pending human approvals, and recent audit events. Local analysis jobs support cooperative cancellation. Approval and denial actions are routed through the MutexFlow backend; the Citadel admin key is never sent to the desktop.
+
+The first executable workflow is **passive local workspace analysis**. Enter a relative directory beneath the configured MutexFlow workspace root (the repository root by default). The worker runs only the native secret-pattern scanner, masks any detected values, and records masked findings in Citadel. It rejects absolute paths and traversal outside the workspace root. It does not expose the autonomous network-scanning, terminal, or exploit-capable tools through this desktop workflow.
+
+**Integration boundary:** the imported VigilEngine autonomous swarm is preserved as source but is not launched by MutexFlow. JCode-backed specialist sessions, batches of up to eight concurrent agents, live event updates, and cancellation are available through the JCode controls. The native VigilEngine autonomous swarm and arbitrary state-changing tool dispatch remain outside this integration; the only managed Orchestral worker action is passive local analysis.
+
+
+## Orchestral runtime integration (in progress)
+
+MutexFlow contains an imported snapshot of [Orchestral](https://github.com/riddhimaan-sth404/orchestral) under `orchestral-runtime/`. The backend manages the Citadel sidecar and a dedicated, restricted local-analysis worker when runtime configuration is present.
+
+Backend endpoints are grouped under `/api/v1/orchestral`:
+
+- `GET /status` and `GET /health` — component readiness and process status.
+- `GET /agents`, `GET /findings`, `GET /approvals`, and `GET /audit` — read Citadel state.
+- `POST /approvals/{id}/approve` and `POST /approvals/{id}/deny` — operator approval decisions.
+- `POST /jobs/local-analysis`, `GET /jobs/{id}`, and `POST /jobs/{id}/cancel` — start, observe, and cooperatively cancel passive local workspace analysis.
+
+The backend keeps the Citadel admin key server-side and binds to loopback by default. The worker accepts only relative workspace paths confined to the configured repository root, runs the passive secret-pattern scanner, masks evidence, and records findings in Citadel. The imported autonomous VigilEngine swarm is not exposed through this adapter. The managed-runtime CI smoke test exercises backend-managed startup, local analysis, approval grant/denial, audit retrieval, and child-process shutdown.
+
+Existing MutexFlow inference, OAuth, licensing, integrations, and desktop behavior are preserved. See [ORCHESTRAL_MERGE_PLAN.md](ORCHESTRAL_MERGE_PLAN.md) for the current boundary and remaining work.
+
+### JCode concurrent agent runtime (experimental)
+
+The same backend can optionally manage a pinned [JCode](https://github.com/1jehuang/jcode) Harness instance. Set `JCODE_AUTOSTART=true` and `JCODE_BINARY` to the installed JCode executable in `backend-rust/.env`. JCode is launched with a clean environment, a dedicated `.mutexflow/jcode` state home, and no inherited JCode/provider login files. Its API is connected through the upstream Rust SDK.
+
+The Avalonia Orchestral dashboard exposes session creation, individual turns, cancellation, and concurrent task batches (up to eight sessions/turns). Backend endpoints are grouped under `/api/v1/jcode`: `GET /health`, `GET|POST /sessions`, `POST /sessions/{id}/run`, `POST /sessions/{id}/cancel`, and `POST /swarm` (one task per entry in `tasks`). Each new session starts with an empty built-in tool allowlist and receives three backend-executed custom tools: confined, read-only UTF-8 file reading (64 KiB limit), immediate-directory listing (200-entry limit), and workspace search (bounded depth/file/match limits with secret redaction). All reject path traversal and symlinks. Shell, file mutation, network, MCP, and self-development tools remain disabled. The adapter provides concurrent model-agent sessions with read-only workspace context; Citadel-mediated state-changing tools and full autonomous JCode swarm workers are not yet integrated.
+
+JCode requires a provider configured inside its isolated state home before turns can produce model output. The runtime smoke workflows build the pinned JCode executable and verify isolated startup, provider-key set/clear and readiness persistence across a backend restart, session creation/listing, built-in tool disablement, and cancellation without making billable model calls. Performance claims remain unverified; see [JCODE_INTEGRATION.md](JCODE_INTEGRATION.md) for the security and benchmark gates.
