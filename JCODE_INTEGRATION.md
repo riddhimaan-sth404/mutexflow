@@ -75,6 +75,8 @@ Copy `backend-rust/.env.example` to `backend-rust/.env` and set:
 
 Optional `JCODE_PROVIDER` and `JCODE_MODEL` select the preferred provider/model. API-key provider identifiers are `openai-api`, `anthropic-api` (also accepted internally as `claude-api`), `openrouter`, and `gemini`; the backend infers the matching identifier when omitted. If no explicit provider is set, the backend infers one from configured keys in the order OpenAI, Anthropic, OpenRouter, Gemini. Existing `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `OPENROUTER_API_KEY`, and `GEMINI_API_KEY` variables are also accepted as provider-key sources.
 
+Install the bundled Python worker dependencies once with `python -m pip install -e orchestral-runtime/worker`. The backend starts the worker process but does not install Python packages at runtime.
+
 Never commit the real `.env` or credential files.
 
 ## Validation
