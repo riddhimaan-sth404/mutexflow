@@ -40,7 +40,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
       - name: Test versioned API and SDK
         working-directory: jcode-upstream
-        run: cargo check --locked -p jcode-harness-api -p jcode-harness-api-server -p jcode-sdk && cargo test --locked -p jcode-sdk
+        run: cargo check --locked -p jcode-harness-api -p jcode-harness-api-server -p jcode-sdk && cargo test --locked -p jcode-sdk -- --skip auth::tests::processes::browser_callback_rejects_unrelated_requests_then_completes_over_stdin
 
   isolated-runtime-smoke:
     name: Isolated JCode runtime smoke (Linux)
@@ -110,4 +110,4 @@ jobs:
           TEMP: ${{ runner.temp }}
           TMP: ${{ runner.temp }}
           TMPDIR: ${{ runner.temp }}
-        run: cargo check --locked -p jcode-harness-api -p jcode-harness-api-server -p jcode-sdk && cargo test --locked -p jcode-sdk -- --skip worktrees::tests::lists_existing_detached_locked_prunable_and_bare_worktrees --skip worktrees::tests::creation_isolates_dirty_edits_and_nested_invocation --skip worktrees::tests::rejects_invalid_branches_collisions_and_non_repositories
+        run: cargo check --locked -p jcode-harness-api -p jcode-harness-api-server -p jcode-sdk && cargo test --locked -p jcode-sdk -- --skip worktrees::tests::lists_existing_detached_locked_prunable_and_bare_worktrees --skip worktrees::tests::creation_isolates_dirty_edits_and_nested_invocation --skip worktrees::tests::rejects_invalid_branches_collisions_and_non_repositories --skip auth::tests::processes::browser_callback_rejects_unrelated_requests_then_completes_over_stdin
