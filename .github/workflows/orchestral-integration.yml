@@ -152,7 +152,16 @@ jobs:
           unauth_jcode=$(curl --silent --show-error -o /dev/null -w '%{http_code}' http://127.0.0.1:3001/api/v1/jcode/health)
           test "$unauth_jcode" = "401"
 
-          curl --fail-with-body --silent --show-error -H "X-MutexFlow-Token: $MUTEXFLOW_API_TOKEN" http://127.0.0.1:3001/api/v1/orchestral/status             | python -c 'import json,sys; d=json.load(sys.stdin); assert d["core_healthy"], d; assert d["worker_healthy"], d'
+          orchestral_ready=false
+          for _ in $(seq 1 600); do
+            orchestral_status=$(curl --silent --show-error -H "X-MutexFlow-Token: $MUTEXFLOW_API_TOKEN" http://127.0.0.1:3001/api/v1/orchestral/status 2>/dev/null || true)
+            if printf '%s' "$orchestral_status" | python -c 'import json,sys; d=json.load(sys.stdin); sys.exit(0 if d.get("core_healthy") and d.get("worker_healthy") else 1)' 2>/dev/null; then
+              orchestral_ready=true
+              break
+            fi
+            sleep 1
+          done
+          test "$orchestral_ready" = true
           curl --fail-with-body --silent --show-error -H "X-MutexFlow-Token: $MUTEXFLOW_API_TOKEN" http://127.0.0.1:3001/api/v1/jcode/health             | python -c 'import json,sys; d=json.load(sys.stdin); assert not d["enabled"], d; assert not d["connected"], d'
 
           job_json=$(curl --fail-with-body --silent --show-error -X POST -H "X-MutexFlow-Token: $MUTEXFLOW_API_TOKEN" http://127.0.0.1:3001/api/v1/orchestral/jobs/local-analysis             -H "Content-Type: application/json" -d '{"workspace":"backend-rust"}')
