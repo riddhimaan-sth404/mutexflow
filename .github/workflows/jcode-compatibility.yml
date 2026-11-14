@@ -65,7 +65,7 @@ jobs:
           JCODE_RUNTIME_SMOKE: "1"
           JCODE_AUTOSTART: "true"
           JCODE_BINARY: ${{ github.workspace }}/jcode-upstream/target/release/jcode
-        run: cargo test --manifest-path backend-rust/Cargo.toml --test jcode_runtime_smoke -- --nocapture
+        run: cargo test --locked --manifest-path backend-rust/Cargo.toml --test jcode_runtime_smoke -- --nocapture
 
   windows-isolated-runtime-smoke:
     name: Isolated JCode runtime smoke (Windows)
@@ -97,7 +97,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Continue'
-          cargo test --manifest-path backend-rust/Cargo.toml --test jcode_runtime_smoke -- --nocapture 2>&1 | Tee-Object -FilePath smoke-log.txt
+          cargo test --locked --manifest-path backend-rust/Cargo.toml --test jcode_runtime_smoke -- --nocapture 2>&1 | Tee-Object -FilePath smoke-log.txt
           exit $LASTEXITCODE
       - name: Publish smoke diagnostics to job summary
         if: always()
